@@ -143,17 +143,18 @@ fn mwixnet_test_impl(test_dir: &'static str) -> Result<(), libwallet::Error> {
 			"0c9414341f2140ed34a5a12a6479bf5a6404820d001ab81d9d3e8cc38f049b4e";
 		let server_pubkey_str_3 =
 			"b58ece97d60e71bb7e53218400b0d67bfe6a3cb7d3b4a67a44f8fb7c525cbca5";
-		let server_key_1 =
-			SecretKey::from_slice(&secp, &grin_util::from_hex(&server_pubkey_str_1).unwrap())
-				.unwrap();
-		let server_key_2 =
-			SecretKey::from_slice(&secp, &grin_util::from_hex(&server_pubkey_str_2).unwrap())
-				.unwrap();
-		let server_key_3 =
-			SecretKey::from_slice(&secp, &grin_util::from_hex(&server_pubkey_str_3).unwrap())
-				.unwrap();
+		// The mwixnet servers' x25519 onion public keys (derived here from known test
+		// secrets; in practice each server publishes its onion pubkey).
+		let server_pubkey = |hex: &str| {
+			let sk = SecretKey::from_slice(&secp, &grin_util::from_hex(hex).unwrap()).unwrap();
+			x25519_dalek::PublicKey::from(&x25519_dalek::StaticSecret::from(sk.0))
+		};
 		let params = MixnetReqCreationParams {
-			server_keys: vec![server_key_1, server_key_2, server_key_3],
+			server_pubkeys: vec![
+				server_pubkey(server_pubkey_str_1),
+				server_pubkey(server_pubkey_str_2),
+				server_pubkey(server_pubkey_str_3),
+			],
 			fee_per_hop: 50_000_000,
 		};
 		let outputs = api.retrieve_outputs(mask1, false, false, None)?;

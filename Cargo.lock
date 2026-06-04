@@ -1510,6 +1510,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "uuid",
+ "x25519-dalek 0.6.0",
 ]
 
 [[package]]
@@ -1561,6 +1562,7 @@ dependencies = [
  "tokio 0.2.25",
  "url",
  "uuid",
+ "x25519-dalek 0.6.0",
 ]
 
 [[package]]

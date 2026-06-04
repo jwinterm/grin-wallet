@@ -49,7 +49,6 @@ use chrono::prelude::{DateTime, NaiveDateTime, Utc};
 use ed25519_dalek::PublicKey as DalekPublicKey;
 use ed25519_dalek::SecretKey as DalekSecretKey;
 use ed25519_dalek::Verifier;
-use x25519_dalek::{PublicKey as xPublicKey, StaticSecret};
 
 use std::convert::{TryFrom, TryInto};
 use std::sync::mpsc::Sender;
@@ -1665,12 +1664,7 @@ where
 		SwitchCommitmentType::Regular,
 	)?;
 
-	let mut server_pubkeys = vec![];
-	for i in 0..params.server_keys.len() {
-		server_pubkeys.push(xPublicKey::from(&StaticSecret::from(
-			params.server_keys[i].0,
-		)));
-	}
+	let server_pubkeys = params.server_pubkeys.clone();
 
 	let fee = grin_core::libtx::tx_fee(1, 1, 1);
 	let new_amount = amount - (fee * server_pubkeys.len() as u64);

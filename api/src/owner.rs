@@ -2543,7 +2543,7 @@ where
 	/// let api_owner = Owner::new(wallet.clone(), None);
 	/// let keychain_mask = None;
 	/// let params = MixnetReqCreationParams {
-	///   server_keys: vec![], // Public keys here in secret key representation
+	///   server_pubkeys: vec![], // x25519 onion public keys of the mix servers
 	///   fee_per_hop: 100,
 	/// };
 	///

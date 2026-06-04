@@ -12,6 +12,7 @@ edition = "2021"
 
 [dependencies]
 ed25519-dalek = "1.0.0-pre.4"
+x25519-dalek = "0.6"
 futures = "0.3"
 hyper = "0.14"
 rand = "0.7"

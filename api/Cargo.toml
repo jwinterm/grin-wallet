@@ -21,6 +21,7 @@ chrono = { version = "0.4.11", features = ["serde"] }
 ring = "0.16"
 base64 = "0.12"
 ed25519-dalek = "1.0.0-pre.4"
+x25519-dalek = "0.6"
 
 grin_wallet_libwallet = { path = "../libwallet", version = "5.4.0-alpha.1" }
 grin_wallet_config = { path = "../config", version = "5.4.0-alpha.1" }

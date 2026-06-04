@@ -17,8 +17,8 @@
 
 use super::onion::comsig_serde;
 use grin_core::libtx::secp_ser::string_or_u64;
-use grin_util::secp::key::SecretKey;
 use serde::{Deserialize, Serialize};
+use x25519_dalek::PublicKey as xPublicKey;
 
 pub use super::onion::{onion::Onion, ComSignature, Hop};
 
@@ -35,9 +35,39 @@ pub struct SwapReq {
 /// mwixnetRequest Creation Params
 #[derive(Serialize, Deserialize, Debug)]
 pub struct MixnetReqCreationParams {
-	/// List of all the server keys
-	pub server_keys: Vec<SecretKey>,
+	/// x25519 onion public keys of the mix servers, in route order
+	#[serde(with = "vec_xpubkey_hex")]
+	pub server_pubkeys: Vec<xPublicKey>,
 	/// Fees per hop
 	#[serde(with = "string_or_u64")]
 	pub fee_per_hop: u64,
+}
+
+/// Serializes a Vec<x25519 PublicKey> as a list of hex strings.
+pub mod vec_xpubkey_hex {
+	use grin_util::{from_hex, ToHex};
+	use serde::de::Error;
+	use serde::{Deserialize, Deserializer, Serializer};
+	use x25519_dalek::PublicKey as xPublicKey;
+
+	///
+	pub fn serialize<S: Serializer>(keys: &Vec<xPublicKey>, s: S) -> Result<S::Ok, S::Error> {
+		let hexes: Vec<String> = keys.iter().map(|k| k.as_bytes().to_hex()).collect();
+		serde::Serialize::serialize(&hexes, s)
+	}
+
+	///
+	pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<xPublicKey>, D::Error> {
+		let hexes: Vec<String> = Deserialize::deserialize(d)?;
+		let mut keys = Vec::with_capacity(hexes.len());
+		for h in hexes {
+			let bytes = from_hex(&h).map_err(Error::custom)?;
+			let arr: [u8; 32] = bytes
+				.as_slice()
+				.try_into()
+				.map_err(|_| Error::custom("x25519 pubkey must be 32 bytes"))?;
+			keys.push(xPublicKey::from(arr));
+		}
+		Ok(keys)
+	}
 }

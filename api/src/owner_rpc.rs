@@ -2023,10 +2023,10 @@ pub trait OwnerRpc {
 			"commitment": "08e1da9e6dc4d6e808a718b2f110a991dd775d65ce5ae408a4e1f002a4961aa9e7",
 			"fee_per_hop": "5000000",
 			"lock_output": true,
-			"server_keys": [
-				"97444ae673bb92c713c1a2f7b8882ffbfc1c67401a280a775dce1a8651584332",
-				"0c9414341f2140ed34a5a12a6479bf5a6404820d001ab81d9d3e8cc38f049b4e",
-				"b58ece97d60e71bb7e53218400b0d67bfe6a3cb7d3b4a67a44f8fb7c525cbca5"
+			"server_pubkeys": [
+				"24308f58032819d05146db48e78246139f8e30770b1fd1585392df8374d6226a",
+				"3ab3b7d1fb643393897a0b942934d34be9cb823621cd49c09b12fdfa69598d71",
+				"80f2ceadcc5a767961772f4ae04826c70b0ae497f4f50d782241ff056b71df45"
 			]
 		},
 		"id": 1
@@ -2064,7 +2064,7 @@ pub trait OwnerRpc {
 		commitment: String,
 		fee_per_hop: String,
 		lock_output: bool,
-		server_keys: Vec<String>,
+		server_pubkeys: Vec<String>,
 	) -> Result<SwapReq, Error>;
 }
 
@@ -2541,24 +2541,23 @@ where
 		commitment: String,
 		fee_per_hop: String,
 		lock_output: bool,
-		server_keys: Vec<String>,
+		server_pubkeys: Vec<String>,
 	) -> Result<SwapReq, Error> {
 		let commit =
 			Commitment::from_vec(from_hex(&commitment).map_err(|e| Error::CommitDeser(e))?);
 
-		let secp_inst = static_secp_instance();
-		let secp = secp_inst.lock();
-
-		let mut keys = vec![];
-		for key in server_keys {
-			keys.push(SecretKey::from_slice(
-				&secp,
-				&grin_util::from_hex(&key).map_err(|e| Error::ServerKeyDeser(e))?,
-			)?)
+		let mut pubkeys = vec![];
+		for key in server_pubkeys {
+			let bytes = grin_util::from_hex(&key).map_err(|e| Error::ServerKeyDeser(e))?;
+			let arr: [u8; 32] = bytes
+				.as_slice()
+				.try_into()
+				.map_err(|_| Error::GenericError(format!("x25519 pubkey must be 32 bytes: {}", key)))?;
+			pubkeys.push(x25519_dalek::PublicKey::from(arr));
 		}
 
 		let req_params = MixnetReqCreationParams {
-			server_keys: keys,
+			server_pubkeys: pubkeys,
 			fee_per_hop: fee_per_hop
 				.parse::<u64>()
 				.map_err(|_| Error::U64Deser(fee_per_hop))?,
