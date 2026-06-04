@@ -10,6 +10,11 @@ exclude = ["**/*.grin", "**/*.grin2"]
 #build = "src/build/build.rs"
 edition = "2021"
 
+[features]
+# Exposes the mwixnet onion test helpers (test_util, new_hop) to downstream
+# crates such as the mwixnet swap server. Off by default; not part of normal builds.
+test-helpers = []
+
 [dependencies]
 blake2-rfc = "0.2"
 rand = "0.6"

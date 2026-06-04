@@ -68,7 +68,6 @@ impl AsRef<PublicKey> for DalekPublicKey {
 	}
 }
 
-#[cfg(test)]
 /// Serializes an Option<DalekPublicKey> to and from hex
 pub mod option_dalek_pubkey_serde {
 	use super::DalekPublicKey;
@@ -148,7 +147,6 @@ impl AsRef<Signature> for DalekSignature {
 }
 
 /// Serializes a DalekSignature to and from hex
-#[cfg(test)]
 pub mod dalek_sig_serde {
 	use super::DalekSignature;
 	use grin_util::ToHex;
@@ -176,7 +174,6 @@ pub mod dalek_sig_serde {
 
 /// Dalek signature sign wrapper
 // TODO: This is likely duplicated throughout crate, check
-#[cfg(test)]
 pub fn sign(sk: &SecretKey, message: &[u8]) -> Result<DalekSignature, DalekError> {
 	use ed25519_dalek::{Keypair, Signer};
 	let secret =
