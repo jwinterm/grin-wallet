@@ -24,8 +24,9 @@ use crate::keychain;
 use crate::libwallet::api_impl::owner;
 use crate::libwallet::contract::can_finalize;
 use crate::libwallet::contract::types::{
-	ContractNewArgsAPI, ContractRevokeArgsAPI, ContractSetupArgsAPI, OutputSelectionArgs,
+	ContractNewArgsAPI, ContractRevokeArgsAPI, ContractSetupArgsAPI, OutputSelectionArgs, ProofArgs,
 };
+use ed25519_dalek::PublicKey as DalekPublicKey;
 use crate::libwallet::{
 	self, InitTxArgs, IssueInvoiceTxArgs, NodeClient, PaymentProof, Slate, SlateState, Slatepack,
 	SlatepackAddress, Slatepacker, SlatepackerArgs, WalletLCProvider,
@@ -1646,6 +1647,8 @@ pub struct ContractNewArgs {
 	pub outfile: Option<String>,
 	/// Select outputs early
 	pub add_outputs: bool,
+	/// Sender address for a requested payment proof (set when --payment-proof is passed)
+	pub payment_proof_sender: Option<DalekPublicKey>,
 }
 
 impl ContractNewArgs {
@@ -1663,6 +1666,11 @@ impl ContractNewArgs {
 	// Create a ContractNewArgsAPI from the ContractNewArgs
 	fn to_api_args(&self) -> ContractNewArgsAPI {
 		let net_change = self.get_net_change();
+		let mut proof_args = ProofArgs::default();
+		if let Some(sender) = self.payment_proof_sender {
+			proof_args.suppress_proof = false;
+			proof_args.sender_address = Some(sender);
+		}
 		ContractNewArgsAPI {
 			setup_args: ContractSetupArgsAPI {
 				src_acct_name: match self.src_acct_name.as_ref() {
@@ -1683,7 +1691,7 @@ impl ContractNewArgs {
 					},
 					..Default::default()
 				},
-				proof_args: Default::default(),
+				proof_args,
 			},
 			..Default::default()
 		}
@@ -1745,6 +1753,8 @@ pub struct ContractSetupArgs {
 	pub outfile: Option<String>,
 	/// Add outputs
 	pub add_outputs: bool, // lock outputs early
+	/// Sender address for a requested payment proof (set when --payment-proof is passed)
+	pub payment_proof_sender: Option<DalekPublicKey>,
 }
 
 impl ContractSetupArgs {
@@ -1766,11 +1776,17 @@ impl ContractSetupArgs {
 	// Create a ContractSetupArgsAPI from the ContractSetupArgs
 	fn to_api_args(&self) -> ContractSetupArgsAPI {
 		let net_change = self.get_net_change();
+		let mut proof_args = ProofArgs::default();
+		if let Some(sender) = self.payment_proof_sender {
+			proof_args.suppress_proof = false;
+			proof_args.sender_address = Some(sender);
+		}
 		ContractSetupArgsAPI {
 			// TODO: num_participants is derived here. It should be an Option and read from the slate.
 			// Need to check no attack are possible regarding kernel fee contribution.
 			net_change: net_change,
 			add_outputs: self.add_outputs,
+			proof_args,
 			selection_args: OutputSelectionArgs {
 				use_inputs: match self.use_inputs.as_ref() {
 					Some(v) => Some(v.to_string()),

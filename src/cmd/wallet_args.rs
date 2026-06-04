@@ -1044,6 +1044,23 @@ pub fn parse_contract_new_args(
 		None => 2,
 	};
 
+	// A payment proof commits to the sender's address, so it requires --encrypt-for
+	// (the counterparty) to derive that address from.
+	let payment_proof_sender = if args.is_present("payment-proof") {
+		let addr_str = counterparty_addr.as_deref().ok_or_else(|| {
+			ParseError::ArgumentError("--payment-proof requires --encrypt-for".into())
+		})?;
+		let addr = SlatepackAddress::try_from(addr_str).map_err(|e| {
+			ParseError::ArgumentError(format!(
+				"Invalid --encrypt-for address for payment proof: {}",
+				e
+			))
+		})?;
+		Some(addr.pub_key)
+	} else {
+		None
+	};
+
 	Ok(command::ContractNewArgs {
 		counterparty_addr: counterparty_addr,
 		receive: receive,
@@ -1054,6 +1071,7 @@ pub fn parse_contract_new_args(
 		add_outputs: add_outputs,
 		use_inputs: use_inputs,
 		make_outputs: make_outputs,
+		payment_proof_sender: payment_proof_sender,
 		// TODO: Future features below
 		fee_rate: None,
 		outfile: None,
@@ -1118,6 +1136,23 @@ pub fn parse_contract_setup_args(
 	// TODO: should we catch if the person calls "--receive=5" when it should be "--send=5"?
 	// Perhaps we could detect this from the slate state e.g. S1 -> receive, I1 -> send?
 
+	// A payment proof commits to the sender's address; require --encrypt-for so we can
+	// derive it (when signing, the counterparty is the sender).
+	let payment_proof_sender = if args.is_present("payment-proof") {
+		let addr_str = counterparty_addr.as_ref().ok_or_else(|| {
+			ParseError::ArgumentError("--payment-proof requires --encrypt-for".into())
+		})?;
+		let addr = SlatepackAddress::try_from(addr_str.as_str()).map_err(|e| {
+			ParseError::ArgumentError(format!(
+				"Invalid --encrypt-for address for payment proof: {}",
+				e
+			))
+		})?;
+		Some(addr.pub_key)
+	} else {
+		None
+	};
+
 	Ok(command::ContractSetupArgs {
 		counterparty_addr: counterparty_addr,
 		receive: receive,
@@ -1126,6 +1161,7 @@ pub fn parse_contract_setup_args(
 		add_outputs: false,
 		use_inputs: use_inputs,
 		make_outputs: make_outputs,
+		payment_proof_sender: payment_proof_sender,
 		// TODO: Future features below
 		fee_rate: None,
 		outfile: None,

@@ -497,6 +497,10 @@ subcommands:
                     short: o
                     long: make-outputs
                     takes_value: true
+                - payment-proof:
+                    help: Request a payment proof (receiver signs a receipt). Requires --encrypt-for.
+                    long: payment-proof
+                    takes_value: false
         # - setup:
         #     about: Perform a key setup on a contract
         #     args:
@@ -578,6 +582,10 @@ subcommands:
                     short: o
                     long: make-outputs
                     takes_value: true
+                - payment-proof:
+                    help: Request a payment proof (receiver signs a receipt). Requires --encrypt-for.
+                    long: payment-proof
+                    takes_value: false
                 - no-broadcast:
                     help: Don't broadcast the transaction if it was finalized
                     long: no-broadcast
