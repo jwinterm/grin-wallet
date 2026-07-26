@@ -32,7 +32,7 @@ use crate::slate_versions::ser as dalek_ser;
 use crate::types::{Context, NodeClient};
 use crate::{address, Error};
 use byteorder::{BigEndian, ByteOrder};
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::{DateTime, Utc};
 use ed25519_dalek::Signature as DalekSignature;
 use ed25519_dalek::SigningKey as DalekSecretKey;
 use ed25519_dalek::VerifyingKey as DalekPublicKey;
@@ -224,9 +224,7 @@ impl InvoiceProof {
 		};
 
 		let timestamp = match slate.payment_proof.as_ref() {
-			Some(p) => NaiveDateTime::from_timestamp_opt(p.timestamp.timestamp(), 0)
-				.unwrap()
-				.timestamp(),
+			Some(p) => p.timestamp.timestamp(),
 			None => 0,
 		};
 
@@ -380,8 +378,8 @@ where
 	// work tied to the early-payment-proof RFC.
 	let (invoice_proof, promise_signature, receiver_address) =
 		generate_invoice_signature(wallet, keychain_mask, slate, context, proof_args)?;
-	let timestamp = NaiveDateTime::from_timestamp_opt(Utc::now().timestamp(), 0).unwrap();
-	let timestamp = DateTime::<Utc>::from_utc(timestamp, Utc);
+	// Whole seconds only; the sub-second component is not serialized.
+	let timestamp = DateTime::from_timestamp(Utc::now().timestamp(), 0).unwrap();
 
 	let proof = PaymentInfo {
 		sender_address: proof_args.sender_address.clone(),
@@ -418,9 +416,7 @@ where
 	let recp_key =
 		address::address_from_derivation_path(&keychain, &parent_key_id, derivation_index)?;
 
-	invoice_proof.timestamp = NaiveDateTime::from_timestamp_opt(Utc::now().timestamp(), 0)
-		.unwrap()
-		.timestamp();
+	invoice_proof.timestamp = Utc::now().timestamp();
 	let (sig, addr) = invoice_proof.sign(&recp_key)?;
 	Ok((invoice_proof, sig, addr))
 }

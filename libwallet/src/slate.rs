@@ -28,7 +28,7 @@ use crate::grin_util::secp::key::{PublicKey, SecretKey};
 use crate::grin_util::secp::pedersen::Commitment;
 use crate::grin_util::secp::Signature;
 use crate::grin_util::{secp, static_secp_instance};
-use chrono::prelude::{DateTime, NaiveDateTime, Utc};
+use chrono::prelude::{DateTime, Utc};
 use ed25519_dalek::Signature as DalekSignature;
 use ed25519_dalek::VerifyingKey as DalekPublicKey;
 use serde::ser::{Serialize, Serializer};
@@ -1600,10 +1600,7 @@ impl From<&PaymentInfoV4> for PaymentInfo {
 			sender_address: Some(sender_address),
 			receiver_address,
 			promise_signature: receiver_signature,
-			timestamp: DateTime::<Utc>::from_utc(
-				NaiveDateTime::from_timestamp_opt(0, 0).unwrap(),
-				Utc,
-			),
+			timestamp: DateTime::from_timestamp(0, 0).unwrap(),
 			memo: None,
 		}
 	}

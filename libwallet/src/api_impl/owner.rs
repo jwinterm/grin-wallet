@@ -43,7 +43,7 @@ use crate::{
 	SlatepackAddress, Slatepacker, SlatepackerArgs, TxLogEntryType, ViewWallet, WalletBackend,
 	WalletInitStatus, WalletInst, WalletLCProvider,
 };
-use chrono::prelude::{DateTime, NaiveDateTime, Utc};
+use chrono::prelude::DateTime;
 use ed25519_dalek::SigningKey as DalekSecretKey;
 use ed25519_dalek::Verifier;
 use ed25519_dalek::VerifyingKey as DalekPublicKey;
@@ -691,10 +691,7 @@ where
 			sender_address: Some(sender_address.to_ed25519()?),
 			receiver_address: a.pub_key,
 			promise_signature: None,
-			timestamp: DateTime::<Utc>::from_utc(
-				NaiveDateTime::from_timestamp_opt(0, 0).unwrap(),
-				Utc,
-			),
+			timestamp: DateTime::from_timestamp(0, 0).unwrap(),
 			memo: None,
 		});
 

@@ -21,7 +21,7 @@ use crate::grin_keychain::BlindingFactor;
 use crate::grin_util::secp::key::PublicKey;
 use crate::grin_util::secp::pedersen::{Commitment, RangeProof};
 use crate::grin_util::secp::Signature;
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::{DateTime, Utc};
 use ed25519_dalek::Signature as DalekSignature;
 use ed25519_dalek::VerifyingKey as DalekPublicKey;
 use std::convert::{TryFrom, TryInto};
@@ -259,11 +259,10 @@ impl Readable for ProofWrap {
 			Ok(v) => v,
 			Err(_) => return Err(grin_ser::Error::CorruptedData),
 		};
-		let ts_opt = match NaiveDateTime::from_timestamp_opt(ts_raw, 0) {
-			Some(o) => o,
+		let ts = match DateTime::from_timestamp(ts_raw, 0) {
+			Some(ts) => ts,
 			None => return Err(grin_ser::Error::CorruptedData),
 		};
-		let ts = DateTime::<Utc>::from_utc(ts_opt, Utc);
 		let psig = match reader.read_u8()? {
 			0 => None,
 			1 | _ => Some(
@@ -506,8 +505,7 @@ fn slate_v5_serialize_deserialize() {
 	let b = <&[u8; 32]>::try_from(b.as_slice()).unwrap();
 	let d_pkey = DalekPublicKey::from_bytes(b).unwrap();
 	// Need to remove milliseconds component for comparison. Won't be serialized
-	let ts = NaiveDateTime::from_timestamp_opt(Utc::now().timestamp(), 0).unwrap();
-	let ts = DateTime::<Utc>::from_utc(ts, Utc);
+	let ts = DateTime::from_timestamp(Utc::now().timestamp(), 0).unwrap();
 	let pm = PaymentMemoV5 {
 		memo_type: 0,
 		memo: [9; 32],

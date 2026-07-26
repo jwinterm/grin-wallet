@@ -155,7 +155,7 @@ pub mod tests {
 	use crate::{
 		slate, Error, Slate, Slatepacker, SlatepackerArgs, VersionedBinSlate, VersionedSlate,
 	};
-	use chrono::{DateTime, NaiveDateTime, Utc};
+	use chrono::{DateTime, Utc};
 	use ed25519_dalek::Signature as DalekSignature;
 	use ed25519_dalek::VerifyingKey as DalekPublicKey;
 	use grin_core::global::{set_local_chain_type, ChainTypes};
@@ -229,8 +229,7 @@ pub mod tests {
 		let b = <&[u8; 32]>::try_from(b.as_slice()).unwrap();
 		let d_pkey = DalekPublicKey::from_bytes(b).unwrap();
 		// Need to remove milliseconds component for comparison. Won't be serialized
-		let ts = NaiveDateTime::from_timestamp_opt(Utc::now().timestamp(), 0).unwrap();
-		let ts = DateTime::<Utc>::from_utc(ts, Utc);
+		let ts = DateTime::from_timestamp(Utc::now().timestamp(), 0).unwrap();
 		let pm = PaymentMemo {
 			memo_type: 1,
 			memo: [9; 32],
