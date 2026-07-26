@@ -14,13 +14,13 @@
 
 //! Implementation of contract view
 
+use crate::backend::WalletBackend;
 use crate::contract::types::ContractView;
 use crate::error::Error;
 use crate::grin_keychain::Keychain;
 use crate::grin_util::secp::key::SecretKey;
 use crate::slate::{Slate, SlateState};
-use crate::types::{NodeClient};
-use crate::backend::WalletBackend;
+use crate::types::NodeClient;
 
 /// View contract
 pub fn view<C, K>(

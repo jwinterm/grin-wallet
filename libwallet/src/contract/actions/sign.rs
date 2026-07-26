@@ -14,6 +14,7 @@
 
 //! Implementation of contract sign
 
+use crate::backend::WalletBackend;
 use crate::contract;
 use crate::contract::actions::setup;
 use crate::contract::types::ContractSetupArgsAPI;
@@ -22,7 +23,6 @@ use crate::grin_keychain::Keychain;
 use crate::grin_util::secp::key::SecretKey;
 use crate::slate::Slate;
 use crate::types::{Context, NodeClient};
-use crate::backend::WalletBackend;
 
 /// Sign a contract
 pub fn sign<C, K>(

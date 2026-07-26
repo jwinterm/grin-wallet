@@ -14,6 +14,7 @@
 
 //! Contract building utility functions
 
+use crate::backend::WalletBackend;
 use crate::contract::selection::verify_selection_consistency;
 use crate::contract::types::ContractSetupArgsAPI;
 use crate::grin_core::libtx::tx_fee;
@@ -21,7 +22,6 @@ use crate::grin_keychain::{Identifier, Keychain};
 use crate::grin_util::secp::key::SecretKey;
 use crate::slate::Slate;
 use crate::types::{Context, NodeClient, StoredProofInfo, TxLogEntryType};
-use crate::backend::WalletBackend;
 use crate::util::OnionV3Address;
 use crate::{address, Error, OutputData, OutputStatus, TxLogEntry};
 use grin_core::core::FeeFields;
@@ -288,8 +288,7 @@ where
 	// gone so the nonce can never be reused. It is deleted in the is_signed && !is_step2
 	// branch above; verify the deletion actually took effect.
 	if is_signed && !is_step2 {
-		if w
-			.get_private_context(keychain_mask, slate.id.as_bytes())
+		if w.get_private_context(keychain_mask, slate.id.as_bytes())
 			.is_ok()
 		{
 			return Err(Error::GenericError(

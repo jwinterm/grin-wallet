@@ -14,12 +14,12 @@
 
 //! Contract coin selection functions
 
+use crate::backend::WalletBackend;
 use crate::contract::types::{ContractSetupArgsAPI, OutputSelectionArgs};
 use crate::contract::utils::my_fee_contribution;
 use crate::grin_core::core::amount_to_hr_string;
 use crate::grin_keychain::{Identifier, Keychain};
-use crate::types::{NodeClient};
-use crate::backend::WalletBackend;
+use crate::types::NodeClient;
 use crate::{Error, OutputData};
 use grin_core::core::FeeFields;
 

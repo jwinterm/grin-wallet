@@ -15,6 +15,7 @@
 //! Implementation of contract setup
 
 use crate::api_impl::owner::check_ttl;
+use crate::backend::WalletBackend;
 use crate::contract;
 use crate::contract::types::ContractSetupArgsAPI;
 use crate::error::Error;
@@ -22,7 +23,6 @@ use crate::grin_keychain::Keychain;
 use crate::grin_util::secp::key::SecretKey;
 use crate::slate::Slate;
 use crate::types::{Context, NodeClient};
-use crate::backend::WalletBackend;
 
 /// Perform a contract setup
 pub fn setup<C, K>(

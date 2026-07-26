@@ -13,6 +13,8 @@
 // limitations under the License.
 
 //! Implementation of contract revoke
+use crate::backend::WalletBackend;
+use crate::blake2::blake2b::blake2b;
 use crate::contract::types::{ContractRevokeArgsAPI, ContractSetupArgsAPI, OutputSelectionArgs};
 use crate::contract::{new, sign};
 use crate::error::Error;
@@ -21,8 +23,6 @@ use crate::grin_util::secp::key::SecretKey;
 use crate::internal::tx;
 use crate::slate::Slate;
 use crate::types::{NodeClient, OutputData, OutputStatus, TxLogEntryType};
-use crate::backend::WalletBackend;
-use crate::blake2::blake2b::blake2b;
 use uuid::Uuid;
 
 /// Deterministic slate id for the self-spend that revokes a given contract slate.
@@ -97,8 +97,7 @@ where
 		// Drop the canceled slate's private context if one still exists (signing already
 		// deletes it).
 		if let Some(slate_id) = revoked_slate_id {
-			if w
-				.get_private_context(keychain_mask, slate_id.as_bytes())
+			if w.get_private_context(keychain_mask, slate_id.as_bytes())
 				.is_ok()
 			{
 				let mut batch = w.batch(keychain_mask)?;
@@ -113,9 +112,10 @@ where
 	if my_contributed_inputs.is_empty() {
 		return Ok(None);
 	}
-	let input_commit = my_contributed_inputs[0].commit.as_ref().ok_or_else(|| {
-		Error::GenericError("Locked input has no cached commitment".to_string())
-	})?;
+	let input_commit = my_contributed_inputs[0]
+		.commit
+		.as_ref()
+		.ok_or_else(|| Error::GenericError("Locked input has no cached commitment".to_string()))?;
 	// Account label for the self-spend, so recovered funds return to the inputs' account.
 	let src_acct_name = w
 		.acct_path_iter()?

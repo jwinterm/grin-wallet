@@ -14,6 +14,7 @@
 
 //! Contract functions on the Context
 
+use crate::backend::WalletBackend;
 use crate::contract::selection::prepare_outputs;
 use crate::contract::types::ContractSetupArgsAPI;
 use crate::contract::utils as contract_utils;
@@ -22,7 +23,6 @@ use crate::grin_util::secp::key::SecretKey;
 use crate::internal::updater;
 use crate::slate::Slate;
 use crate::types::{Context, NodeClient};
-use crate::backend::WalletBackend;
 use crate::{Error, OutputData};
 use grin_core::core::FeeFields;
 
