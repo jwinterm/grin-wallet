@@ -52,6 +52,19 @@ pub enum SlateVersion {
 	V4,
 }
 
+impl SlateVersion {
+	/// The lowest version that can represent this slate without losing data, so a slate
+	/// is only sent as V5 when it has to be. V4 carries the payment proof's sender and
+	/// receiver addresses and its signature, but neither the timestamp nor the memo, so
+	/// only a proof using one of those needs V5. A legacy send proof sets neither.
+	pub fn lowest_for(slate: &Slate) -> SlateVersion {
+		match &slate.payment_proof {
+			Some(p) if p.memo.is_some() || p.timestamp.timestamp() != 0 => SlateVersion::V5,
+			_ => SlateVersion::V4,
+		}
+	}
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(untagged)]
 /// Versions are ordered newest to oldest so serde attempts to
@@ -292,6 +305,21 @@ pub mod tests {
 		slate_no_proof.payment_proof = None;
 		let recovered_v4 = packer.get_slate(&packer.create_slatepack(&slate_no_proof)?)?;
 		assert_eq!(recovered_v4.version_info.version, 4);
+
+		// A legacy send proof uses no V5 field: the timestamp is left at the epoch and
+		// there is no memo. It must stay V4 so V4-only wallets can still read the slate,
+		// and the proof has to survive the round trip intact.
+		let mut slate_legacy_proof = populate_test_slate()?;
+		let mut proof = slate_legacy_proof.payment_proof.clone().unwrap();
+		proof.timestamp = DateTime::from_timestamp(0, 0).unwrap();
+		proof.memo = None;
+		slate_legacy_proof.payment_proof = Some(proof.clone());
+		let recovered_legacy = packer.get_slate(&packer.create_slatepack(&slate_legacy_proof)?)?;
+		assert_eq!(recovered_legacy.version_info.version, 4);
+		let recovered_proof = recovered_legacy.payment_proof.unwrap();
+		assert_eq!(recovered_proof.sender_address, proof.sender_address);
+		assert_eq!(recovered_proof.receiver_address, proof.receiver_address);
+		assert_eq!(recovered_proof.promise_signature, proof.promise_signature);
 
 		Ok(())
 	}

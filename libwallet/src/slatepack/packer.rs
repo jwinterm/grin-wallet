@@ -95,13 +95,8 @@ impl<'a> Slatepacker<'a> {
 	/// Create slatepack from slate and args
 	pub fn create_slatepack(&self, slate: &Slate) -> Result<Slatepack, Error> {
 		// Emit the lowest version that can represent this slate, for maximum
-		// interoperability. Only the (opt-in) payment proof needs V5 fields
-		// (timestamp/memo) that V4 cannot carry; everything else stays V4.
-		let version = if slate.payment_proof.is_some() {
-			SlateVersion::V5
-		} else {
-			SlateVersion::V4
-		};
+		// interoperability with V4-only wallets.
+		let version = SlateVersion::lowest_for(slate);
 		let out_slate = VersionedSlate::into_version(slate.clone(), version)?;
 		let bin_slate = VersionedBinSlate::try_from(out_slate).map_err(|_| Error::SlatepackSer)?;
 		let mut slatepack = Slatepack::default();

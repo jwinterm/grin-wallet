@@ -21,7 +21,7 @@ use crate::grin_keychain::BlindingFactor;
 use crate::grin_util::secp::key::PublicKey;
 use crate::grin_util::secp::pedersen::{Commitment, RangeProof};
 use crate::grin_util::secp::Signature;
-use chrono::{DateTime, Utc};
+use chrono::DateTime;
 use ed25519_dalek::Signature as DalekSignature;
 use ed25519_dalek::VerifyingKey as DalekPublicKey;
 use std::convert::{TryFrom, TryInto};
@@ -434,6 +434,7 @@ fn slate_v5_serialize_deserialize() {
 	use crate::grin_util::from_hex;
 	use crate::grin_util::secp::key::PublicKey;
 	use crate::Slate;
+	use chrono::Utc;
 	use grin_core::global::{set_local_chain_type, ChainTypes};
 	use grin_keychain::{ExtKeychain, Keychain, SwitchCommitmentType};
 	set_local_chain_type(ChainTypes::Mainnet);
