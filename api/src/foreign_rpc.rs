@@ -144,7 +144,7 @@ pub trait ForeignRpc {
 					}
 				],
 				"sta": "S1",
-				"ver": "5:2"
+				"ver": "4:2"
 			},
 			null,
 			null
@@ -179,7 +179,7 @@ pub trait ForeignRpc {
 					}
 				],
 				"sta": "S2",
-				"ver": "5:2"
+				"ver": "4:2"
 			}
 		}
 	}

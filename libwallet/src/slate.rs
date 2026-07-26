@@ -914,14 +914,15 @@ impl From<&KernelFeaturesArgs> for KernelFeaturesArgsV5 {
 impl From<&VersionCompatInfo> for VersionCompatInfoV5 {
 	fn from(data: &VersionCompatInfo) -> VersionCompatInfoV5 {
 		let VersionCompatInfo {
-			version,
+			version: _,
 			block_header_version,
 		} = data;
-		let version = *version;
-		let block_header_version = *block_header_version;
+		// The declared version describes the structure we are producing, so it is fixed
+		// here rather than carried over from the internal slate. Readers rely on it to
+		// select the matching variant.
 		VersionCompatInfoV5 {
-			version,
-			block_header_version,
+			version: 5,
+			block_header_version: *block_header_version,
 		}
 	}
 }
@@ -1360,14 +1361,13 @@ impl From<&KernelFeaturesArgs> for KernelFeaturesArgsV4 {
 impl From<&VersionCompatInfo> for VersionCompatInfoV4 {
 	fn from(data: &VersionCompatInfo) -> VersionCompatInfoV4 {
 		let VersionCompatInfo {
-			version,
+			version: _,
 			block_header_version,
 		} = data;
-		let version = *version;
-		let block_header_version = *block_header_version;
+		// See VersionCompatInfoV5: the declared version always matches the structure.
 		VersionCompatInfoV4 {
-			version,
-			block_header_version,
+			version: 4,
+			block_header_version: *block_header_version,
 		}
 	}
 }

@@ -153,13 +153,15 @@ pub mod tests {
 	use crate::slate::{KernelFeaturesArgs, ParticipantData, PaymentInfo, PaymentMemo};
 	use crate::slate_versions::v5::{CommitsV5, SlateV5};
 	use crate::{
-		slate, Error, Slate, Slatepacker, SlatepackerArgs, VersionedBinSlate, VersionedSlate,
+		slate, Error, Slate, SlateVersion, Slatepacker, SlatepackerArgs, VersionedBinSlate,
+		VersionedSlate,
 	};
 	use chrono::{DateTime, Utc};
 	use ed25519_dalek::Signature as DalekSignature;
 	use ed25519_dalek::VerifyingKey as DalekPublicKey;
 	use grin_core::global::{set_local_chain_type, ChainTypes};
 	use grin_keychain::{ExtKeychain, Keychain, SwitchCommitmentType};
+	use grin_wallet_util::byte_ser;
 	use std::convert::TryInto;
 
 	/// Populate a test internal slate with all fields to test conversions
@@ -319,6 +321,64 @@ pub mod tests {
 				.timestamp(),
 			0
 		);
+
+		Ok(())
+	}
+
+	// A slate must deserialize back into the version it declares. VersionedSlate is
+	// untagged and tries V5 first, so without a version check in each deserializer a
+	// V4 slate is silently parsed (and reported) as V5.
+	#[test]
+	fn versioned_slate_json_round_trip() -> Result<(), Error> {
+		set_local_chain_type(ChainTypes::Mainnet);
+		let slate_internal = populate_test_slate()?;
+
+		// A slate without a payment proof is the case that matters: the V4 and V5 proof
+		// shapes differ, so a proof makes the variants distinguishable by accident.
+		for with_proof in [true, false] {
+			for version in [SlateVersion::V4, SlateVersion::V5] {
+				let mut slate = slate_internal.clone();
+				if !with_proof {
+					slate.payment_proof = None;
+				}
+				slate.version_info.version = match version {
+					SlateVersion::V4 => 4,
+					SlateVersion::V5 => 5,
+				};
+				let versioned = VersionedSlate::into_version(slate, version.clone())?;
+				let json = serde_json::to_string(&versioned).unwrap();
+				let recovered: VersionedSlate = serde_json::from_str(&json).unwrap();
+				assert_eq!(recovered.version(), version, "json round trip: {}", json);
+			}
+		}
+
+		Ok(())
+	}
+
+	#[test]
+	fn versioned_bin_slate_round_trip() -> Result<(), Error> {
+		set_local_chain_type(ChainTypes::Mainnet);
+		let slate_internal = populate_test_slate()?;
+
+		for with_proof in [true, false] {
+			for version in [SlateVersion::V4, SlateVersion::V5] {
+				let mut slate = slate_internal.clone();
+				if !with_proof {
+					slate.payment_proof = None;
+				}
+				slate.version_info.version = match version {
+					SlateVersion::V4 => 4,
+					SlateVersion::V5 => 5,
+				};
+				let versioned = VersionedSlate::into_version(slate, version.clone())?;
+				let bin: VersionedBinSlate = versioned.try_into().unwrap();
+				let bytes = byte_ser::to_bytes(&bin).unwrap();
+				let recovered: VersionedSlate = byte_ser::from_bytes::<VersionedBinSlate>(&bytes)
+					.unwrap()
+					.into();
+				assert_eq!(recovered.version(), version);
+			}
+		}
 
 		Ok(())
 	}

@@ -526,7 +526,15 @@ pub mod version_info_v4 {
 				return Err(Error::custom("Cannot parse version"));
 			}
 			match u16::from_str_radix(v[0], 10) {
-				Ok(u) => retval.version = u,
+				// VersionedSlate is untagged, so the declared version must be checked here:
+				// otherwise a slate is silently parsed as the wrong variant.
+				Ok(4) => retval.version = 4,
+				Ok(u) => {
+					return Err(Error::custom(format!(
+						"Expected a V4 slate, found version {}",
+						u
+					)))
+				}
 				Err(e) => return Err(Error::custom(format!("Cannot parse version: {}", e))),
 			}
 			match u16::from_str_radix(v[1], 10) {
@@ -568,7 +576,15 @@ pub mod version_info_v5 {
 				return Err(Error::custom("Cannot parse version"));
 			}
 			match u16::from_str_radix(v[0], 10) {
-				Ok(u) => retval.version = u,
+				// See the V4 deserializer: the declared version disambiguates the
+				// untagged VersionedSlate variants.
+				Ok(5) => retval.version = 5,
+				Ok(u) => {
+					return Err(Error::custom(format!(
+						"Expected a V5 slate, found version {}",
+						u
+					)))
+				}
 				Err(e) => return Err(Error::custom(format!("Cannot parse version: {}", e))),
 			}
 			match u16::from_str_radix(v[1], 10) {

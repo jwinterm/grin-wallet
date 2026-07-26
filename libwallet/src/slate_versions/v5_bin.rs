@@ -382,8 +382,17 @@ impl Writeable for SlateV5Bin {
 
 impl Readable for SlateV5Bin {
 	fn read<R: Reader>(reader: &mut R) -> Result<SlateV5Bin, grin_ser::Error> {
+		// See SlateV4Bin: the declared version disambiguates the untagged
+		// VersionedBinSlate variants.
+		let version = reader.read_u16()?;
+		if version != 5 {
+			return Err(grin_ser::Error::UnexpectedData {
+				expected: 5u16.to_be_bytes().to_vec(),
+				received: version.to_be_bytes().to_vec(),
+			});
+		}
 		let ver = VersionCompatInfoV5 {
-			version: reader.read_u16()?,
+			version,
 			block_header_version: reader.read_u16()?,
 		};
 		let id = UuidWrap::read(reader)?.0;

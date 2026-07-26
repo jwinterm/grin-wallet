@@ -463,8 +463,17 @@ impl Writeable for SlateV4Bin {
 
 impl Readable for SlateV4Bin {
 	fn read<R: Reader>(reader: &mut R) -> Result<SlateV4Bin, grin_ser::Error> {
+		// VersionedBinSlate is untagged, so reject a slate that does not declare V4 here;
+		// otherwise it can be parsed as the wrong variant.
+		let version = reader.read_u16()?;
+		if version != 4 {
+			return Err(grin_ser::Error::UnexpectedData {
+				expected: 4u16.to_be_bytes().to_vec(),
+				received: version.to_be_bytes().to_vec(),
+			});
+		}
 		let ver = VersionCompatInfoV4 {
-			version: reader.read_u16()?,
+			version,
 			block_header_version: reader.read_u16()?,
 		};
 		let id = UuidWrap::read(reader)?.0;
