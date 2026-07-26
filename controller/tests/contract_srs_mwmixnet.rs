@@ -21,10 +21,9 @@ use grin_util::{secp::SecretKey, static_secp_instance};
 use grin_wallet_libwallet as libwallet;
 
 use impls::test_framework::{self};
-use libwallet::contract::my_fee_contribution;
 use libwallet::contract::types::{ContractNewArgsAPI, ContractSetupArgsAPI};
 use libwallet::mwixnet::MixnetReqCreationParams;
-use libwallet::{Slate, SlateState, TxLogEntryType};
+use libwallet::{Slate, SlateState};
 use std::sync::atomic::Ordering;
 use std::thread;
 use std::time::Duration;
@@ -37,7 +36,7 @@ use std::path::PathBuf;
 /// contract SRS flow - just creating an mwixnet tx at the moment
 fn contract_srs_mwixnet_tx_impl(test_dir: &'static str) -> Result<(), libwallet::Error> {
 	// create two wallets and mine 4 blocks in each (we want both to have balance to get a payjoin)
-	let (wallets, chain, stopper, mut bh) =
+	let (wallets, chain, stopper, _bh) =
 		create_wallets(vec![vec![("default", 4)], vec![("default", 4)]], test_dir).unwrap();
 	let send_wallet = wallets[0].0.clone();
 	let send_mask = wallets[0].1.as_ref();
@@ -107,11 +106,9 @@ fn contract_srs_mwixnet_tx_impl(test_dir: &'static str) -> Result<(), libwallet:
 			Ok(())
 		},
 	)?;
-	bh += 1;
 
 	let _ =
 		test_framework::award_blocks_to_wallet(&chain, send_wallet.clone(), send_mask, 3, false);
-	bh += 3;
 
 	// Recipient wallet sends outputs to mwixnet
 	wallet::controller::owner_single_use(
@@ -157,52 +154,6 @@ fn contract_srs_mwixnet_tx_impl(test_dir: &'static str) -> Result<(), libwallet:
 			Ok(())
 		},
 	)?;
-
-	bh += 1;
-
-	/*
-	let _ =
-		test_framework::award_blocks_to_wallet(&chain, send_wallet.clone(), send_mask, 3, false);
-	bh += 3;
-
-	// Assert changes in receive wallet
-	wallet::controller::owner_single_use(recv_wallet.clone(), recv_mask, PathBuf::from(test_dir), |api, m| {
-		let (_, wallet_info) = api.retrieve_summary_info(m, true, 1)?;
-		let (refreshed, txs) = api.retrieve_txs(m, true, None, None, None)?;
-		assert_eq!(wallet_info.last_confirmed_height, bh);
-		assert!(refreshed);
-		assert_eq!(txs.len(), 5); // 4 mined and 1 received
-		let tx_log = txs[4].clone();
-		assert_eq!(tx_log.tx_type, TxLogEntryType::TxReceived);
-		assert_eq!(tx_log.amount_credited, 5_000_000_000);
-		assert_eq!(tx_log.amount_debited, 0);
-		assert_eq!(tx_log.num_inputs, 1);
-		assert_eq!(tx_log.num_outputs, 1);
-		let expected_fees_paid = Some(my_fee_contribution(1, 1, 1, 2)?);
-		assert_eq!(tx_log.fee, expected_fees_paid);
-		assert_eq!(
-			wallet_info.amount_currently_spendable,
-			4 * 60_000_000_000 + 5_000_000_000 - expected_fees_paid.unwrap().fee() // we expect the balance of 4 mined blocks + 5 Grin - fees paid
-		);
-		Ok(())
-	})?;
-
-	// Assert changes in send wallet
-	wallet::controller::owner_single_use(send_wallet.clone(), send_mask, PathBuf::from(test_dir), |api, m| {
-		let (_, wallet_info) = api.retrieve_summary_info(m, true, 1)?;
-		let (refreshed, txs) = api.retrieve_txs(m, true, None, None, None)?;
-		assert_eq!(wallet_info.last_confirmed_height, bh);
-		assert!(refreshed);
-		assert_eq!(txs.len() as u64, bh - 4 + 1); // send wallet didn't mine 4 blocks and made 1 tx
-		let tx_log = txs[txs.len() - 5].clone(); // TODO: why -5 and not -4?
-		assert_eq!(tx_log.tx_type, TxLogEntryType::TxSent);
-		assert_eq!(tx_log.amount_credited, 0);
-		assert_eq!(tx_log.amount_debited, 5_000_000_000);
-		assert_eq!(tx_log.num_inputs, 1);
-		assert_eq!(tx_log.num_outputs, 1);
-		assert_eq!(tx_log.fee, Some(my_fee_contribution(1, 1, 1, 2)?));
-		Ok(())
-	})?;*/
 
 	// let logging finish
 	stopper.store(false, Ordering::Relaxed);

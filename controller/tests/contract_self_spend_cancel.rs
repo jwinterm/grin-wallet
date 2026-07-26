@@ -19,8 +19,6 @@ extern crate log;
 
 use grin_wallet_libwallet as libwallet;
 
-use impls::test_framework::{self};
-use libwallet::contract::my_fee_contribution;
 use libwallet::contract::types::{ContractNewArgsAPI, ContractSetupArgsAPI};
 use libwallet::{Slate, SlateState, TxLogEntryType};
 use std::sync::atomic::Ordering;
@@ -35,7 +33,7 @@ use std::path::PathBuf;
 /// contract self-spend flow
 fn contract_self_spend_cancel_impl(test_dir: &'static str) -> Result<(), libwallet::Error> {
 	// create a single wallet and mine 4 blocks
-	let (wallets, chain, stopper, mut bh) =
+	let (wallets, _chain, stopper, _bh) =
 		create_wallets(vec![vec![("default", 4)]], test_dir).unwrap();
 	let send_wallet = wallets[0].0.clone();
 	let send_mask = wallets[0].1.as_ref();

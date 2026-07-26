@@ -142,6 +142,7 @@ impl VersionedCoinbase {
 		}
 	}
 }
+/// Shared slate fixtures, used by the version conversion tests
 #[cfg(test)]
 pub mod tests {
 	use crate::grin_core::core::transaction::OutputFeatures;
@@ -161,7 +162,7 @@ pub mod tests {
 	use grin_keychain::{ExtKeychain, Keychain, SwitchCommitmentType};
 	use std::convert::TryInto;
 
-	// Populate a test internal slate with all fields to test conversions
+	/// Populate a test internal slate with all fields to test conversions
 	pub fn populate_test_slate() -> Result<Slate, Error> {
 		let keychain = ExtKeychain::from_random_seed(true).unwrap();
 		let switch = SwitchCommitmentType::Regular;

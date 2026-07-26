@@ -1489,7 +1489,7 @@ where
 				let broadcast_tx = !sign_args.is_present("no-broadcast");
 				command::contract_sign(owner_api, km, setup_args, broadcast_tx)
 			}
-			("view", Some(view_args)) => {
+			("view", Some(_view_args)) => {
 				Err(Error::ArgumentError(String::from("Not implemented")).into())
 			}
 			("revoke", Some(revoke_args)) => {

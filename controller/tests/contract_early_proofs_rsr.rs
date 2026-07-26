@@ -27,7 +27,7 @@ use grin_wallet_libwallet as libwallet;
 use impls::test_framework::{self};
 use libwallet::contract::my_fee_contribution;
 use libwallet::contract::types::{ContractNewArgsAPI, ContractSetupArgsAPI};
-use libwallet::{Slate, SlateState, Slatepack, Slatepacker, SlatepackerArgs, TxLogEntryType};
+use libwallet::{Slate, SlateState, Slatepacker, SlatepackerArgs, TxLogEntryType};
 use std::sync::atomic::Ordering;
 use std::thread;
 use std::time::Duration;
@@ -55,7 +55,7 @@ fn contract_early_proofs_rsr_test_impl(test_dir: &'static str) -> Result<(), lib
 		send_wallet.clone(),
 		send_mask,
 		PathBuf::from(test_dir),
-		|api, m| {
+		|api, _m| {
 			sender_address = Some(api.get_slatepack_address(send_mask, 0)?.pub_key);
 			Ok(())
 		},

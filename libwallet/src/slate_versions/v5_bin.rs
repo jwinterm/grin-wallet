@@ -25,7 +25,6 @@ use chrono::{DateTime, NaiveDateTime, Utc};
 use ed25519_dalek::Signature as DalekSignature;
 use ed25519_dalek::VerifyingKey as DalekPublicKey;
 use std::convert::{TryFrom, TryInto};
-use std::f64::consts::E;
 
 use crate::slate_versions::v5::{
 	CommitsV5, KernelFeaturesArgsV5, ParticipantDataV5, PaymentInfoV5, PaymentMemoV5, SlateStateV5,

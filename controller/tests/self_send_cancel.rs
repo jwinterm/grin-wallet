@@ -109,7 +109,7 @@ fn self_send_cancel_test_impl(test_dir: &'static str) -> Result<(), libwallet::E
 		wallet1.clone(),
 		mask1,
 		PathBuf::from(test_dir),
-		|api, m| {
+		|api, _m| {
 			let query = RetrieveTxQueryArgs {
 				include_outstanding_only: Some(true),
 				exclude_cancelled: Some(true),

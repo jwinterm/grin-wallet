@@ -24,10 +24,9 @@ use crate::grin_core::core::{FeeFields, Output, OutputFeatures, Transaction};
 use crate::grin_core::libtx::proof;
 use crate::grin_keychain::ViewKey;
 use crate::grin_util::secp::key::SecretKey;
-use crate::grin_util::secp::pedersen;
 use crate::grin_util::secp::pedersen::Commitment;
-use crate::grin_util::{static_secp_instance, Mutex, ToHex};
-use crate::util::{OnionV3Address, OnionV3AddressError};
+use crate::grin_util::{Mutex, ToHex};
+use crate::util::OnionV3Address;
 
 use crate::api_impl::owner_updater::StatusMessage;
 use crate::contract::types::{ContractNewArgsAPI, ContractRevokeArgsAPI, ContractSetupArgsAPI};
