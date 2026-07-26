@@ -29,6 +29,7 @@ use std::time::Duration;
 #[macro_use]
 mod common;
 use common::{clean_output_dir, create_wallet_proxy, setup};
+use std::path::PathBuf;
 
 /// self send impl
 fn self_send_cancel_test_impl(test_dir: &'static str) -> Result<(), libwallet::Error> {
@@ -66,47 +67,62 @@ fn self_send_cancel_test_impl(test_dir: &'static str) -> Result<(), libwallet::E
 		test_framework::award_blocks_to_wallet(&chain, wallet1.clone(), mask1, bh as usize, false);
 
 	// Should have 5 in account1 (5 spendable), 5 in account (2 spendable)
-	wallet::controller::owner_single_use(Some(wallet1.clone()), mask1, None, |api, m| {
-		let (wallet1_refreshed, wallet1_info) = api.retrieve_summary_info(m, true, 1)?;
-		assert!(wallet1_refreshed);
-		assert_eq!(wallet1_info.last_confirmed_height, bh);
-		assert_eq!(wallet1_info.total, bh * reward);
-		// send to send
-		let args = InitTxArgs {
-			src_acct_name: None,
-			amount: reward * 2,
-			minimum_confirmations: 2,
-			max_outputs: 500,
-			num_change_outputs: 1,
-			selection_strategy_is_use_all: true,
-			..Default::default()
-		};
-		let mut slate = api.init_send_tx(m, args)?;
-		api.tx_lock_outputs(m, &slate)?;
-		// Send directly to self
-		wallet::controller::foreign_single_use(wallet1.clone(), mask1_i.clone(), |api| {
-			slate = api.receive_tx(&slate, None, None)?;
+	wallet::controller::owner_single_use(
+		wallet1.clone(),
+		mask1,
+		PathBuf::from(test_dir),
+		|api, m| {
+			let (wallet1_refreshed, wallet1_info) = api.retrieve_summary_info(m, true, 1)?;
+			assert!(wallet1_refreshed);
+			assert_eq!(wallet1_info.last_confirmed_height, bh);
+			assert_eq!(wallet1_info.total, bh * reward);
+			// send to send
+			let args = InitTxArgs {
+				src_acct_name: None,
+				amount: reward * 2,
+				minimum_confirmations: 2,
+				max_outputs: 500,
+				num_change_outputs: 1,
+				selection_strategy_is_use_all: true,
+				..Default::default()
+			};
+			let mut slate = api.init_send_tx(m, args)?;
+			api.tx_lock_outputs(m, &slate)?;
+			// Send directly to self
+			wallet::controller::foreign_single_use(
+				wallet1.clone(),
+				PathBuf::from(test_dir),
+				mask1_i.clone(),
+				|api| {
+					slate = api.receive_tx(&slate, None, None)?;
+					Ok(())
+				},
+			)?;
+			// Now cancel the transaction
+			api.cancel_tx(mask1, None, Some(slate.id.clone()))?;
+			bh += 1;
 			Ok(())
-		})?;
-		// Now cancel the transaction
-		api.cancel_tx(mask1, None, Some(slate.id.clone()))?;
-		bh += 1;
-		Ok(())
-	})?;
+		},
+	)?;
 
-	wallet::controller::owner_single_use(Some(wallet1.clone()), mask1, None, |api, m| {
-		let query = RetrieveTxQueryArgs {
-			include_outstanding_only: Some(true),
-			exclude_cancelled: Some(true),
-			..Default::default()
-		};
-		let txs = api.retrieve_txs(mask1, true, None, None, Some(query))?;
-		for tx in txs.1.iter() {
-			println!("Tx: {:?}", tx);
-		}
-		assert!(txs.1.is_empty());
-		Ok(())
-	})?;
+	wallet::controller::owner_single_use(
+		wallet1.clone(),
+		mask1,
+		PathBuf::from(test_dir),
+		|api, m| {
+			let query = RetrieveTxQueryArgs {
+				include_outstanding_only: Some(true),
+				exclude_cancelled: Some(true),
+				..Default::default()
+			};
+			let txs = api.retrieve_txs(mask1, true, None, None, Some(query))?;
+			for tx in txs.1.iter() {
+				println!("Tx: {:?}", tx);
+			}
+			assert!(txs.1.is_empty());
+			Ok(())
+		},
+	)?;
 
 	// let logging finish
 	stopper.store(false, Ordering::Relaxed);

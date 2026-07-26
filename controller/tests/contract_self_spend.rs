@@ -30,6 +30,7 @@ use std::time::Duration;
 #[macro_use]
 mod common;
 use common::{clean_output_dir, create_wallets, setup};
+use std::path::PathBuf;
 
 /// contract self-spend flow
 fn contract_self_spend_tx_impl(test_dir: &'static str) -> Result<(), libwallet::Error> {
@@ -41,36 +42,51 @@ fn contract_self_spend_tx_impl(test_dir: &'static str) -> Result<(), libwallet::
 
 	let mut slate = Slate::blank(0, true); // this gets overriden below
 
-	wallet::controller::owner_single_use(Some(send_wallet.clone()), send_mask, None, |api, m| {
-		// Send wallet inititates a standard transaction with --send=0
-		let args = &ContractNewArgsAPI {
-			setup_args: ContractSetupArgsAPI {
-				net_change: Some(0),
-				num_participants: 1,
+	wallet::controller::owner_single_use(
+		send_wallet.clone(),
+		send_mask,
+		PathBuf::from(test_dir),
+		|api, m| {
+			// Send wallet inititates a standard transaction with --send=0
+			let args = &ContractNewArgsAPI {
+				setup_args: ContractSetupArgsAPI {
+					net_change: Some(0),
+					num_participants: 1,
+					..Default::default()
+				},
 				..Default::default()
-			},
-			..Default::default()
-		};
-		slate = api.contract_new(m, args)?;
-		Ok(())
-	})?;
+			};
+			slate = api.contract_new(m, args)?;
+			Ok(())
+		},
+	)?;
 	assert_eq!(slate.state, SlateState::Standard1);
 
 	// Send wallet finalizes and posts
-	wallet::controller::owner_single_use(Some(send_wallet.clone()), send_mask, None, |api, m| {
-		let args = &ContractSetupArgsAPI {
-			..Default::default()
-		};
-		slate = api.contract_sign(m, &slate, args)?;
-		Ok(())
-	})?;
+	wallet::controller::owner_single_use(
+		send_wallet.clone(),
+		send_mask,
+		PathBuf::from(test_dir),
+		|api, m| {
+			let args = &ContractSetupArgsAPI {
+				..Default::default()
+			};
+			slate = api.contract_sign(m, &slate, args)?;
+			Ok(())
+		},
+	)?;
 	// In the case of a self-spend, we just finish the slate when it's in the Standard2 state
 	assert_eq!(slate.state, SlateState::Standard2);
 
-	wallet::controller::owner_single_use(Some(send_wallet.clone()), send_mask, None, |api, m| {
-		api.post_tx(m, &slate, false)?;
-		Ok(())
-	})?;
+	wallet::controller::owner_single_use(
+		send_wallet.clone(),
+		send_mask,
+		PathBuf::from(test_dir),
+		|api, m| {
+			api.post_tx(m, &slate, false)?;
+			Ok(())
+		},
+	)?;
 	bh += 1;
 
 	let _ =
@@ -78,21 +94,26 @@ fn contract_self_spend_tx_impl(test_dir: &'static str) -> Result<(), libwallet::
 	bh += 3;
 
 	// Assert changes in send wallet
-	wallet::controller::owner_single_use(Some(send_wallet.clone()), send_mask, None, |api, m| {
-		let (_, wallet_info) = api.retrieve_summary_info(m, true, 1)?;
-		let (refreshed, txs) = api.retrieve_txs(m, true, None, None, None)?;
-		assert_eq!(wallet_info.last_confirmed_height, bh);
-		assert!(refreshed);
-		assert_eq!(txs.len() as u64, bh + 1); // send wallet didn't mine 4 blocks and made 1 tx
-		let tx_log = txs[txs.len() - 5].clone(); // TODO: why -5 and not -4?
-		assert_eq!(tx_log.tx_type, TxLogEntryType::TxSelfSpend);
-		assert_eq!(tx_log.amount_credited, 0);
-		assert_eq!(tx_log.amount_debited, 0);
-		assert_eq!(tx_log.num_inputs, 1);
-		assert_eq!(tx_log.num_outputs, 1);
-		assert_eq!(tx_log.fee, Some(my_fee_contribution(1, 1, 1, 1)?));
-		Ok(())
-	})?;
+	wallet::controller::owner_single_use(
+		send_wallet.clone(),
+		send_mask,
+		PathBuf::from(test_dir),
+		|api, m| {
+			let (_, wallet_info) = api.retrieve_summary_info(m, true, 1)?;
+			let (refreshed, txs) = api.retrieve_txs(m, true, None, None, None)?;
+			assert_eq!(wallet_info.last_confirmed_height, bh);
+			assert!(refreshed);
+			assert_eq!(txs.len() as u64, bh + 1); // send wallet didn't mine 4 blocks and made 1 tx
+			let tx_log = txs[txs.len() - 5].clone(); // TODO: why -5 and not -4?
+			assert_eq!(tx_log.tx_type, TxLogEntryType::TxSelfSpend);
+			assert_eq!(tx_log.amount_credited, 0);
+			assert_eq!(tx_log.amount_debited, 0);
+			assert_eq!(tx_log.num_inputs, 1);
+			assert_eq!(tx_log.num_outputs, 1);
+			assert_eq!(tx_log.fee, Some(my_fee_contribution(1, 1, 1, 1)?));
+			Ok(())
+		},
+	)?;
 
 	// let logging finish
 	stopper.store(false, Ordering::Relaxed);

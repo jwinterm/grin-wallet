@@ -32,6 +32,7 @@ use std::time::Duration;
 #[macro_use]
 mod common;
 use common::{clean_output_dir, create_wallets, setup};
+use std::path::PathBuf;
 
 /// contract SRS flow - just creating an mwixnet tx at the moment
 fn contract_srs_mwixnet_tx_impl(test_dir: &'static str) -> Result<(), libwallet::Error> {
@@ -45,47 +46,67 @@ fn contract_srs_mwixnet_tx_impl(test_dir: &'static str) -> Result<(), libwallet:
 
 	let mut slate = Slate::blank(0, true); // this gets overriden below
 
-	wallet::controller::owner_single_use(Some(send_wallet.clone()), send_mask, None, |api, m| {
-		// Send wallet inititates a standard transaction with --send=5
-		let args = &mut ContractNewArgsAPI {
-			setup_args: ContractSetupArgsAPI {
-				net_change: Some(-5_000_000_000),
+	wallet::controller::owner_single_use(
+		send_wallet.clone(),
+		send_mask,
+		PathBuf::from(test_dir),
+		|api, m| {
+			// Send wallet inititates a standard transaction with --send=5
+			let args = &mut ContractNewArgsAPI {
+				setup_args: ContractSetupArgsAPI {
+					net_change: Some(-5_000_000_000),
+					..Default::default()
+				},
 				..Default::default()
-			},
-			..Default::default()
-		};
-		slate = api.contract_new(m, args)?;
-		Ok(())
-	})?;
+			};
+			slate = api.contract_new(m, args)?;
+			Ok(())
+		},
+	)?;
 	assert_eq!(slate.state, SlateState::Standard1);
 
-	wallet::controller::owner_single_use(Some(recv_wallet.clone()), recv_mask, None, |api, m| {
-		// Receive wallet calls --receive=5
-		let args = &mut ContractSetupArgsAPI {
-			net_change: Some(5_000_000_000),
-			..Default::default()
-		};
-		args.proof_args.suppress_proof = true;
-		slate = api.contract_sign(m, &slate, args)?;
-		Ok(())
-	})?;
+	wallet::controller::owner_single_use(
+		recv_wallet.clone(),
+		recv_mask,
+		PathBuf::from(test_dir),
+		|api, m| {
+			// Receive wallet calls --receive=5
+			let args = &mut ContractSetupArgsAPI {
+				net_change: Some(5_000_000_000),
+				..Default::default()
+			};
+			args.proof_args.suppress_proof = true;
+			slate = api.contract_sign(m, &slate, args)?;
+			Ok(())
+		},
+	)?;
 	assert_eq!(slate.state, SlateState::Standard2);
 
 	// Send wallet finalizes and posts
-	wallet::controller::owner_single_use(Some(send_wallet.clone()), send_mask, None, |api, m| {
-		let args = &mut ContractSetupArgsAPI {
-			..Default::default()
-		};
-		args.proof_args.suppress_proof = true;
-		slate = api.contract_sign(m, &slate, args)?;
-		Ok(())
-	})?;
+	wallet::controller::owner_single_use(
+		send_wallet.clone(),
+		send_mask,
+		PathBuf::from(test_dir),
+		|api, m| {
+			let args = &mut ContractSetupArgsAPI {
+				..Default::default()
+			};
+			args.proof_args.suppress_proof = true;
+			slate = api.contract_sign(m, &slate, args)?;
+			Ok(())
+		},
+	)?;
 	assert_eq!(slate.state, SlateState::Standard3);
 
-	wallet::controller::owner_single_use(Some(send_wallet.clone()), send_mask, None, |api, m| {
-		api.post_tx(m, &slate, false)?;
-		Ok(())
-	})?;
+	wallet::controller::owner_single_use(
+		send_wallet.clone(),
+		send_mask,
+		PathBuf::from(test_dir),
+		|api, m| {
+			api.post_tx(m, &slate, false)?;
+			Ok(())
+		},
+	)?;
 	bh += 1;
 
 	let _ =
@@ -93,44 +114,49 @@ fn contract_srs_mwixnet_tx_impl(test_dir: &'static str) -> Result<(), libwallet:
 	bh += 3;
 
 	// Recipient wallet sends outputs to mwixnet
-	wallet::controller::owner_single_use(Some(recv_wallet.clone()), recv_mask, None, |api, m| {
-		let secp_locked = static_secp_instance();
-		let secp = secp_locked.lock();
-		let server_pubkey_str_1 =
-			"97444ae673bb92c713c1a2f7b8882ffbfc1c67401a280a775dce1a8651584332";
-		let server_pubkey_str_2 =
-			"0c9414341f2140ed34a5a12a6479bf5a6404820d001ab81d9d3e8cc38f049b4e";
-		let server_pubkey_str_3 =
-			"b58ece97d60e71bb7e53218400b0d67bfe6a3cb7d3b4a67a44f8fb7c525cbca5";
-		let server_key_1 =
-			SecretKey::from_slice(&secp, &grin_util::from_hex(&server_pubkey_str_1).unwrap())
-				.unwrap();
-		let server_key_2 =
-			SecretKey::from_slice(&secp, &grin_util::from_hex(&server_pubkey_str_2).unwrap())
-				.unwrap();
-		let server_key_3 =
-			SecretKey::from_slice(&secp, &grin_util::from_hex(&server_pubkey_str_3).unwrap())
-				.unwrap();
-		let params = MixnetReqCreationParams {
-			server_keys: vec![server_key_1, server_key_2, server_key_3],
-			fee_per_hop: 50_000_000,
-		};
-		let outputs = api.retrieve_outputs(recv_mask, false, false, None)?;
-		// get last output
-		let last_output = outputs.1[outputs.1.len() - 1].clone();
+	wallet::controller::owner_single_use(
+		recv_wallet.clone(),
+		recv_mask,
+		PathBuf::from(test_dir),
+		|api, m| {
+			let secp_locked = static_secp_instance();
+			let secp = secp_locked.lock();
+			let server_pubkey_str_1 =
+				"97444ae673bb92c713c1a2f7b8882ffbfc1c67401a280a775dce1a8651584332";
+			let server_pubkey_str_2 =
+				"0c9414341f2140ed34a5a12a6479bf5a6404820d001ab81d9d3e8cc38f049b4e";
+			let server_pubkey_str_3 =
+				"b58ece97d60e71bb7e53218400b0d67bfe6a3cb7d3b4a67a44f8fb7c525cbca5";
+			let server_key_1 =
+				SecretKey::from_slice(&secp, &grin_util::from_hex(&server_pubkey_str_1).unwrap())
+					.unwrap();
+			let server_key_2 =
+				SecretKey::from_slice(&secp, &grin_util::from_hex(&server_pubkey_str_2).unwrap())
+					.unwrap();
+			let server_key_3 =
+				SecretKey::from_slice(&secp, &grin_util::from_hex(&server_pubkey_str_3).unwrap())
+					.unwrap();
+			let params = MixnetReqCreationParams {
+				server_keys: vec![server_key_1, server_key_2, server_key_3],
+				fee_per_hop: 50_000_000,
+			};
+			let outputs = api.retrieve_outputs(recv_mask, false, false, None)?;
+			// get last output
+			let last_output = outputs.1[outputs.1.len() - 1].clone();
 
-		let mwixnet_req = api.create_mwixnet_req(m, &params, &last_output.commit, true)?;
+			let mwixnet_req = api.create_mwixnet_req(m, &params, &last_output.commit, true)?;
 
-		println!("MWIXNET REQ: {:?}", mwixnet_req);
+			println!("MWIXNET REQ: {:?}", mwixnet_req);
 
-		// check output we created comsig for is indeed locked
-		let outputs = api.retrieve_outputs(recv_mask, false, false, None)?;
-		// get last output
-		let last_output = outputs.1[outputs.1.len() - 1].clone();
-		assert!(last_output.output.status == libwallet::OutputStatus::Locked);
+			// check output we created comsig for is indeed locked
+			let outputs = api.retrieve_outputs(recv_mask, false, false, None)?;
+			// get last output
+			let last_output = outputs.1[outputs.1.len() - 1].clone();
+			assert!(last_output.output.status == libwallet::OutputStatus::Locked);
 
-		Ok(())
-	})?;
+			Ok(())
+		},
+	)?;
 
 	bh += 1;
 
@@ -140,7 +166,7 @@ fn contract_srs_mwixnet_tx_impl(test_dir: &'static str) -> Result<(), libwallet:
 	bh += 3;
 
 	// Assert changes in receive wallet
-	wallet::controller::owner_single_use(Some(recv_wallet.clone()), recv_mask, None, |api, m| {
+	wallet::controller::owner_single_use(recv_wallet.clone(), recv_mask, PathBuf::from(test_dir), |api, m| {
 		let (_, wallet_info) = api.retrieve_summary_info(m, true, 1)?;
 		let (refreshed, txs) = api.retrieve_txs(m, true, None, None, None)?;
 		assert_eq!(wallet_info.last_confirmed_height, bh);
@@ -162,7 +188,7 @@ fn contract_srs_mwixnet_tx_impl(test_dir: &'static str) -> Result<(), libwallet:
 	})?;
 
 	// Assert changes in send wallet
-	wallet::controller::owner_single_use(Some(send_wallet.clone()), send_mask, None, |api, m| {
+	wallet::controller::owner_single_use(send_wallet.clone(), send_mask, PathBuf::from(test_dir), |api, m| {
 		let (_, wallet_info) = api.retrieve_summary_info(m, true, 1)?;
 		let (refreshed, txs) = api.retrieve_txs(m, true, None, None, None)?;
 		assert_eq!(wallet_info.last_confirmed_height, bh);

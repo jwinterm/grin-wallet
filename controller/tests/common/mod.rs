@@ -30,6 +30,7 @@ use chain::Chain;
 use grin_wallet_controller::Error;
 use impls::test_framework::{self, LocalWalletClient, WalletProxy};
 use impls::{DefaultLCProvider, DefaultWalletImpl};
+use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::thread;
@@ -82,7 +83,7 @@ macro_rules! open_wallet_and_add {
 pub fn clean_output_dir(test_dir: &str) {
 	let path = std::path::Path::new(test_dir);
 	if path.is_dir() {
-		remove_dir_all::remove_dir_all(test_dir).unwrap();
+		std::fs::remove_dir_all(test_dir).unwrap();
 	}
 }
 
@@ -260,9 +261,9 @@ pub fn create_wallets(
 			// create the account
 			if acc_name.to_string() != "default" {
 				wallet::controller::owner_single_use(
-					Some(wallet1.clone()),
+					wallet1.clone(),
 					mask1,
-					None,
+					PathBuf::from(test_dir),
 					|api, m| {
 						let new_path = api.create_account_path(m, acc_name)?;
 						assert_eq!(
@@ -292,21 +293,32 @@ pub fn create_wallets(
 			bh += num_mined_blocks;
 
 			// Sanity check wallet 1 contents
-			wallet::controller::owner_single_use(Some(wallet1.clone()), mask1, None, |api, m| {
-				let (wallet1_refreshed, wallet1_info) = api.retrieve_summary_info(m, true, 1)?;
-				assert!(wallet1_refreshed);
-				assert_eq!(wallet1_info.last_confirmed_height, bh);
-				assert_eq!(wallet1_info.total, num_mined_blocks * reward);
-				Ok(())
-			})?;
+			wallet::controller::owner_single_use(
+				wallet1.clone(),
+				mask1,
+				PathBuf::from(test_dir),
+				|api, m| {
+					let (wallet1_refreshed, wallet1_info) =
+						api.retrieve_summary_info(m, true, 1)?;
+					assert!(wallet1_refreshed);
+					assert_eq!(wallet1_info.last_confirmed_height, bh);
+					assert_eq!(wallet1_info.total, num_mined_blocks * reward);
+					Ok(())
+				},
+			)?;
 		}
 
 		// Sanity check the number of accounts
-		wallet::controller::owner_single_use(Some(wallet1.clone()), mask1, None, |api, m| {
-			let accounts = api.accounts(m)?;
-			assert_eq!(accounts.len(), accs.len());
-			Ok(())
-		})?;
+		wallet::controller::owner_single_use(
+			wallet1.clone(),
+			mask1,
+			PathBuf::from(test_dir),
+			|api, m| {
+				let accounts = api.accounts(m)?;
+				assert_eq!(accounts.len(), accs.len());
+				Ok(())
+			},
+		)?;
 		// Set the account on the wallet to "default"
 		{
 			wallet_inst!(wallet1, w);

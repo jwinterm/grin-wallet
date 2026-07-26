@@ -45,9 +45,9 @@ use crate::{
 	WalletInitStatus, WalletInst, WalletLCProvider,
 };
 use chrono::prelude::{DateTime, NaiveDateTime, Utc};
-use ed25519_dalek::PublicKey as DalekPublicKey;
-use ed25519_dalek::SecretKey as DalekSecretKey;
+use ed25519_dalek::SigningKey as DalekSecretKey;
 use ed25519_dalek::Verifier;
+use ed25519_dalek::VerifyingKey as DalekPublicKey;
 use x25519_dalek::{PublicKey as xPublicKey, StaticSecret};
 
 use std::convert::{TryFrom, TryInto};
@@ -137,16 +137,7 @@ where
 	let parent_key_id = w.parent_key_id();
 	let k = w.keychain(keychain_mask)?;
 	let sec_addr_key = address::address_from_derivation_path(&k, &parent_key_id, index)?;
-	let d_skey = match DalekSecretKey::from_bytes(&sec_addr_key.0) {
-		Ok(k) => k,
-		Err(e) => {
-			return Err(OnionV3AddressError::InvalidPrivateKey(format!(
-				"Unable to create secret key: {}",
-				e
-			))
-			.into());
-		}
-	};
+	let d_skey = DalekSecretKey::from_bytes(&sec_addr_key.0);
 	Ok(d_skey)
 }
 
@@ -1386,12 +1377,7 @@ where
 
 	// for now, simple test whether one of the addresses belongs to this wallet
 	let sec_key = address::address_from_derivation_path(&keychain, &parent_key_id, 0)?;
-	let d_skey = match DalekSecretKey::from_bytes(&sec_key.0) {
-		Ok(k) => k,
-		Err(e) => {
-			return Err(Error::ED25519Key(format!("{}", e)));
-		}
-	};
+	let d_skey = DalekSecretKey::from_bytes(&sec_key.0);
 	let my_address_pubkey: DalekPublicKey = (&d_skey).into();
 
 	let sender_mine = my_address_pubkey == sender_pubkey;

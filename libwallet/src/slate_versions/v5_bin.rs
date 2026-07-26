@@ -22,8 +22,8 @@ use crate::grin_util::secp::key::PublicKey;
 use crate::grin_util::secp::pedersen::{Commitment, RangeProof};
 use crate::grin_util::secp::Signature;
 use chrono::{DateTime, NaiveDateTime, Utc};
-use ed25519_dalek::PublicKey as DalekPublicKey;
 use ed25519_dalek::Signature as DalekSignature;
+use ed25519_dalek::VerifyingKey as DalekPublicKey;
 use std::convert::{TryFrom, TryInto};
 use std::f64::consts::E;
 
@@ -245,10 +245,17 @@ impl<'a> Writeable for ProofWrapRef<'a> {
 
 impl Readable for ProofWrap {
 	fn read<R: Reader>(reader: &mut R) -> Result<ProofWrap, grin_ser::Error> {
-		let saddr = DalekPublicKey::from_bytes(&reader.read_fixed_bytes(32)?)
+		let saddr_bytes = reader.read_fixed_bytes(32)?;
+		let saddr_bytes = <&[u8; 32]>::try_from(saddr_bytes.as_slice())
 			.map_err(|_| grin_ser::Error::CorruptedData)?;
-		let raddr = DalekPublicKey::from_bytes(&reader.read_fixed_bytes(32)?)
+		let saddr =
+			DalekPublicKey::from_bytes(saddr_bytes).map_err(|_| grin_ser::Error::CorruptedData)?;
+
+		let raddr_bytes = reader.read_fixed_bytes(32)?;
+		let raddr_bytes = <&[u8; 32]>::try_from(raddr_bytes.as_slice())
 			.map_err(|_| grin_ser::Error::CorruptedData)?;
+		let raddr =
+			DalekPublicKey::from_bytes(raddr_bytes).map_err(|_| grin_ser::Error::CorruptedData)?;
 		let ts_raw: i64 = match reader.read_i64() {
 			Ok(v) => v,
 			Err(_) => return Err(grin_ser::Error::CorruptedData),
@@ -497,7 +504,8 @@ fn slate_v5_serialize_deserialize() {
 	let mut v5 = v4_1_copy;
 	let raw_pubkey_str = "d03c09e9c19bb74aa9ea44e0fe5ae237a9bf40bddf0941064a80913a4459c8bb";
 	let b = from_hex(raw_pubkey_str).unwrap();
-	let d_pkey = DalekPublicKey::from_bytes(&b).unwrap();
+	let b = <&[u8; 32]>::try_from(b.as_slice()).unwrap();
+	let d_pkey = DalekPublicKey::from_bytes(b).unwrap();
 	// Need to remove milliseconds component for comparison. Won't be serialized
 	let ts = NaiveDateTime::from_timestamp_opt(Utc::now().timestamp(), 0).unwrap();
 	let ts = DateTime::<Utc>::from_utc(ts, Utc);

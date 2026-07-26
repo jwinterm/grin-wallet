@@ -33,6 +33,7 @@ use std::time::Duration;
 #[macro_use]
 mod common;
 use common::{clean_output_dir, create_wallets, setup};
+use std::path::PathBuf;
 
 /// contract accounts testing (mostly the same as accounts.rs)
 fn contract_accounts_impl(test_dir: &'static str) -> Result<(), libwallet::Error> {
@@ -81,17 +82,22 @@ fn contract_accounts_impl(test_dir: &'static str) -> Result<(), libwallet::Error
 	let _ = test_framework::award_blocks_to_wallet(&chain, wallet1.clone(), mask1, 5, false);
 
 	// Should have 5 in account1 (5 spendable), 5 in account (2 spendable)
-	wallet::controller::owner_single_use(Some(wallet1.clone()), mask1, None, |api, m| {
-		let (wallet1_refreshed, wallet1_info) = api.retrieve_summary_info(m, true, 1)?;
-		assert!(wallet1_refreshed);
-		assert_eq!(wallet1_info.last_confirmed_height, 12);
-		assert_eq!(wallet1_info.total, 5 * reward);
-		assert_eq!(wallet1_info.amount_currently_spendable, (5 - cm) * reward);
-		// check tx log as well
-		let (_, txs) = api.retrieve_txs(m, true, None, None, None)?;
-		assert_eq!(txs.len(), 5);
-		Ok(())
-	})?;
+	wallet::controller::owner_single_use(
+		wallet1.clone(),
+		mask1,
+		PathBuf::from(test_dir),
+		|api, m| {
+			let (wallet1_refreshed, wallet1_info) = api.retrieve_summary_info(m, true, 1)?;
+			assert!(wallet1_refreshed);
+			assert_eq!(wallet1_info.last_confirmed_height, 12);
+			assert_eq!(wallet1_info.total, 5 * reward);
+			assert_eq!(wallet1_info.amount_currently_spendable, (5 - cm) * reward);
+			// check tx log as well
+			let (_, txs) = api.retrieve_txs(m, true, None, None, None)?;
+			assert_eq!(txs.len(), 5);
+			Ok(())
+		},
+	)?;
 
 	// now check second account
 	{
@@ -99,39 +105,49 @@ fn contract_accounts_impl(test_dir: &'static str) -> Result<(), libwallet::Error
 		w.set_parent_key_id_by_name("account1")?;
 	}
 
-	wallet::controller::owner_single_use(Some(wallet1.clone()), mask1, None, |api, m| {
-		// check last confirmed height on this account is different from above (should be 0)
-		let (_, wallet1_info) = api.retrieve_summary_info(m, false, 1)?;
-		assert_eq!(wallet1_info.last_confirmed_height, 0);
-		let (wallet1_refreshed, wallet1_info) = api.retrieve_summary_info(m, true, 1)?;
-		assert!(wallet1_refreshed);
-		assert_eq!(wallet1_info.last_confirmed_height, 12);
-		assert_eq!(wallet1_info.total, 7 * reward);
-		assert_eq!(wallet1_info.amount_currently_spendable, 7 * reward);
-		// check tx log as well
-		let (_, txs) = api.retrieve_txs(m, true, None, None, None)?;
-		assert_eq!(txs.len(), 7);
-		Ok(())
-	})?;
+	wallet::controller::owner_single_use(
+		wallet1.clone(),
+		mask1,
+		PathBuf::from(test_dir),
+		|api, m| {
+			// check last confirmed height on this account is different from above (should be 0)
+			let (_, wallet1_info) = api.retrieve_summary_info(m, false, 1)?;
+			assert_eq!(wallet1_info.last_confirmed_height, 0);
+			let (wallet1_refreshed, wallet1_info) = api.retrieve_summary_info(m, true, 1)?;
+			assert!(wallet1_refreshed);
+			assert_eq!(wallet1_info.last_confirmed_height, 12);
+			assert_eq!(wallet1_info.total, 7 * reward);
+			assert_eq!(wallet1_info.amount_currently_spendable, 7 * reward);
+			// check tx log as well
+			let (_, txs) = api.retrieve_txs(m, true, None, None, None)?;
+			assert_eq!(txs.len(), 7);
+			Ok(())
+		},
+	)?;
 
 	// should be nothing in default account
 	{
 		wallet_inst!(wallet1, w);
 		w.set_parent_key_id_by_name("default")?;
 	}
-	wallet::controller::owner_single_use(Some(wallet1.clone()), mask1, None, |api, m| {
-		let (_, wallet1_info) = api.retrieve_summary_info(m, false, 1)?;
-		assert_eq!(wallet1_info.last_confirmed_height, 0);
-		let (wallet1_refreshed, wallet1_info) = api.retrieve_summary_info(m, true, 1)?;
-		assert!(wallet1_refreshed);
-		assert_eq!(wallet1_info.last_confirmed_height, 12);
-		assert_eq!(wallet1_info.total, 0,);
-		assert_eq!(wallet1_info.amount_currently_spendable, 0,);
-		// check tx log as well
-		let (_, txs) = api.retrieve_txs(m, true, None, None, None)?;
-		assert_eq!(txs.len(), 0);
-		Ok(())
-	})?;
+	wallet::controller::owner_single_use(
+		wallet1.clone(),
+		mask1,
+		PathBuf::from(test_dir),
+		|api, m| {
+			let (_, wallet1_info) = api.retrieve_summary_info(m, false, 1)?;
+			assert_eq!(wallet1_info.last_confirmed_height, 0);
+			let (wallet1_refreshed, wallet1_info) = api.retrieve_summary_info(m, true, 1)?;
+			assert!(wallet1_refreshed);
+			assert_eq!(wallet1_info.last_confirmed_height, 12);
+			assert_eq!(wallet1_info.total, 0,);
+			assert_eq!(wallet1_info.amount_currently_spendable, 0,);
+			// check tx log as well
+			let (_, txs) = api.retrieve_txs(m, true, None, None, None)?;
+			assert_eq!(txs.len(), 0);
+			Ok(())
+		},
+	)?;
 
 	// TODO: check what send_tx_slate_direct call does in accounts.rs test
 	// TODO: check that you can't call send on the default account because you have no funds
@@ -145,104 +161,144 @@ fn contract_accounts_impl(test_dir: &'static str) -> Result<(), libwallet::Error
 	let mut slate = Slate::blank(0, true); // this gets overriden below
 
 	let mut sender_address = None;
-	wallet::controller::owner_single_use(Some(wallet1.clone()), mask1, None, |api, m| {
-		// Send wallet inititates a standard transaction with --send=5
-		let args = &ContractNewArgsAPI {
-			setup_args: ContractSetupArgsAPI {
-				net_change: Some(-5_000_000_000),
+	wallet::controller::owner_single_use(
+		wallet1.clone(),
+		mask1,
+		PathBuf::from(test_dir),
+		|api, m| {
+			// Send wallet inititates a standard transaction with --send=5
+			let args = &ContractNewArgsAPI {
+				setup_args: ContractSetupArgsAPI {
+					net_change: Some(-5_000_000_000),
+					..Default::default()
+				},
 				..Default::default()
-			},
-			..Default::default()
-		};
-		slate = api.contract_new(m, args)?;
-		sender_address = Some(api.get_slatepack_address(mask1, 0)?.pub_key);
-		Ok(())
-	})?;
+			};
+			slate = api.contract_new(m, args)?;
+			sender_address = Some(api.get_slatepack_address(mask1, 0)?.pub_key);
+			Ok(())
+		},
+	)?;
 	assert_eq!(slate.state, SlateState::Standard1);
 
 	let mut recipient_address = None;
-	wallet::controller::owner_single_use(Some(wallet2.clone()), mask2, None, |api, m| {
-		// Receive wallet calls --receive=5
-		let args = &mut ContractSetupArgsAPI {
-			net_change: Some(5_000_000_000),
-			..Default::default()
-		};
-		// Proofs are opt-in; enable and supply the sender address.
-		args.proof_args.suppress_proof = false;
-		args.proof_args.sender_address = sender_address;
-		slate = api.contract_sign(m, &slate, args)?;
-		recipient_address = Some(api.get_slatepack_address(mask2, 0)?.pub_key);
-		Ok(())
-	})?;
+	wallet::controller::owner_single_use(
+		wallet2.clone(),
+		mask2,
+		PathBuf::from(test_dir),
+		|api, m| {
+			// Receive wallet calls --receive=5
+			let args = &mut ContractSetupArgsAPI {
+				net_change: Some(5_000_000_000),
+				..Default::default()
+			};
+			// Proofs are opt-in; enable and supply the sender address.
+			args.proof_args.suppress_proof = false;
+			args.proof_args.sender_address = sender_address;
+			slate = api.contract_sign(m, &slate, args)?;
+			recipient_address = Some(api.get_slatepack_address(mask2, 0)?.pub_key);
+			Ok(())
+		},
+	)?;
 	assert_eq!(slate.state, SlateState::Standard2);
 
 	// Send wallet finalizes and posts
-	wallet::controller::owner_single_use(Some(wallet1.clone()), mask1, None, |api, m| {
-		let args = &ContractSetupArgsAPI {
-			..Default::default()
-		};
-		slate = api.contract_sign(m, &slate, args)?;
-		Ok(())
-	})?;
+	wallet::controller::owner_single_use(
+		wallet1.clone(),
+		mask1,
+		PathBuf::from(test_dir),
+		|api, m| {
+			let args = &ContractSetupArgsAPI {
+				..Default::default()
+			};
+			slate = api.contract_sign(m, &slate, args)?;
+			Ok(())
+		},
+	)?;
 	assert_eq!(slate.state, SlateState::Standard3);
 
-	wallet::controller::owner_single_use(Some(wallet1.clone()), mask1, None, |api, m| {
-		api.post_tx(m, &slate, false)?;
-		Ok(())
-	})?;
+	wallet::controller::owner_single_use(
+		wallet1.clone(),
+		mask1,
+		PathBuf::from(test_dir),
+		|api, m| {
+			api.post_tx(m, &slate, false)?;
+			Ok(())
+		},
+	)?;
 
-	wallet::controller::owner_single_use(Some(wallet1.clone()), mask1, None, |api, m| {
-		let (wallet1_refreshed, wallet1_info) = api.retrieve_summary_info(m, true, 1)?;
-		assert!(wallet1_refreshed);
-		assert_eq!(wallet1_info.last_confirmed_height, 13);
-		let (_, txs) = api.retrieve_txs(m, true, None, None, None)?;
-		assert_eq!(txs.len(), 9);
-		Ok(())
-	})?;
+	wallet::controller::owner_single_use(
+		wallet1.clone(),
+		mask1,
+		PathBuf::from(test_dir),
+		|api, m| {
+			let (wallet1_refreshed, wallet1_info) = api.retrieve_summary_info(m, true, 1)?;
+			assert!(wallet1_refreshed);
+			assert_eq!(wallet1_info.last_confirmed_height, 13);
+			let (_, txs) = api.retrieve_txs(m, true, None, None, None)?;
+			assert_eq!(txs.len(), 9);
+			Ok(())
+		},
+	)?;
 
 	// other account should be untouched
 	{
 		wallet_inst!(wallet1, w);
 		w.set_parent_key_id_by_name("account2")?;
 	}
-	wallet::controller::owner_single_use(Some(wallet1.clone()), mask1, None, |api, m| {
-		let (_, wallet1_info) = api.retrieve_summary_info(m, false, 1)?;
-		assert_eq!(wallet1_info.last_confirmed_height, 12);
-		let (_, wallet1_info) = api.retrieve_summary_info(m, true, 1)?;
-		assert_eq!(wallet1_info.last_confirmed_height, 13);
-		let (_, txs) = api.retrieve_txs(m, true, None, None, None)?;
-		println!("{:?}", txs);
-		assert_eq!(txs.len(), 5);
-		Ok(())
-	})?;
+	wallet::controller::owner_single_use(
+		wallet1.clone(),
+		mask1,
+		PathBuf::from(test_dir),
+		|api, m| {
+			let (_, wallet1_info) = api.retrieve_summary_info(m, false, 1)?;
+			assert_eq!(wallet1_info.last_confirmed_height, 12);
+			let (_, wallet1_info) = api.retrieve_summary_info(m, true, 1)?;
+			assert_eq!(wallet1_info.last_confirmed_height, 13);
+			let (_, txs) = api.retrieve_txs(m, true, None, None, None)?;
+			println!("{:?}", txs);
+			assert_eq!(txs.len(), 5);
+			Ok(())
+		},
+	)?;
 
 	// wallet 2 should only have this tx on the listener account
-	wallet::controller::owner_single_use(Some(wallet2.clone()), mask2, None, |api, m| {
-		let (wallet2_refreshed, wallet2_info) = api.retrieve_summary_info(m, true, 1)?;
-		assert!(wallet2_refreshed);
-		assert_eq!(wallet2_info.last_confirmed_height, 13);
-		let (_, txs) = api.retrieve_txs(m, true, None, None, None)?;
-		assert_eq!(txs.len(), 1);
-		Ok(())
-	})?;
+	wallet::controller::owner_single_use(
+		wallet2.clone(),
+		mask2,
+		PathBuf::from(test_dir),
+		|api, m| {
+			let (wallet2_refreshed, wallet2_info) = api.retrieve_summary_info(m, true, 1)?;
+			assert!(wallet2_refreshed);
+			assert_eq!(wallet2_info.last_confirmed_height, 13);
+			let (_, txs) = api.retrieve_txs(m, true, None, None, None)?;
+			assert_eq!(txs.len(), 1);
+			Ok(())
+		},
+	)?;
 	// Default account on wallet 2 should be untouched
 	{
 		wallet_inst!(wallet2, w);
 		w.set_parent_key_id_by_name("default")?;
 	}
-	wallet::controller::owner_single_use(Some(wallet2.clone()), mask2, None, |api, m| {
-		let (_, wallet2_info) = api.retrieve_summary_info(m, false, 1)?;
-		assert_eq!(wallet2_info.last_confirmed_height, 0);
-		let (wallet2_refreshed, wallet2_info) = api.retrieve_summary_info(m, true, 1)?;
-		assert!(wallet2_refreshed);
-		assert_eq!(wallet2_info.last_confirmed_height, 13);
-		assert_eq!(wallet2_info.total, 0,);
-		assert_eq!(wallet2_info.amount_currently_spendable, 0,);
-		// check tx log as well
-		let (_, txs) = api.retrieve_txs(m, true, None, None, None)?;
-		assert_eq!(txs.len(), 0);
-		Ok(())
-	})?;
+	wallet::controller::owner_single_use(
+		wallet2.clone(),
+		mask2,
+		PathBuf::from(test_dir),
+		|api, m| {
+			let (_, wallet2_info) = api.retrieve_summary_info(m, false, 1)?;
+			assert_eq!(wallet2_info.last_confirmed_height, 0);
+			let (wallet2_refreshed, wallet2_info) = api.retrieve_summary_info(m, true, 1)?;
+			assert!(wallet2_refreshed);
+			assert_eq!(wallet2_info.last_confirmed_height, 13);
+			assert_eq!(wallet2_info.total, 0,);
+			assert_eq!(wallet2_info.amount_currently_spendable, 0,);
+			// check tx log as well
+			let (_, txs) = api.retrieve_txs(m, true, None, None, None)?;
+			assert_eq!(txs.len(), 0);
+			Ok(())
+		},
+	)?;
 
 	// let logging finish
 	stopper.store(false, Ordering::Relaxed);
@@ -268,18 +324,23 @@ fn contract_unknown_account_impl(test_dir: &'static str) -> Result<(), libwallet
 	let wallet1 = wallets[0].0.clone();
 	let mask1 = wallets[0].1.as_ref();
 
-	let res = wallet::controller::owner_single_use(Some(wallet1.clone()), mask1, None, |api, m| {
-		let args = &ContractNewArgsAPI {
-			setup_args: ContractSetupArgsAPI {
-				net_change: Some(-1_000_000_000),
-				src_acct_name: Some("does_not_exist".to_string()),
+	let res = wallet::controller::owner_single_use(
+		wallet1.clone(),
+		mask1,
+		PathBuf::from(test_dir),
+		|api, m| {
+			let args = &ContractNewArgsAPI {
+				setup_args: ContractSetupArgsAPI {
+					net_change: Some(-1_000_000_000),
+					src_acct_name: Some("does_not_exist".to_string()),
+					..Default::default()
+				},
 				..Default::default()
-			},
-			..Default::default()
-		};
-		api.contract_new(m, args)?;
-		Ok(())
-	});
+			};
+			api.contract_new(m, args)?;
+			Ok(())
+		},
+	);
 	assert!(res.is_err(), "expected an error for an unknown account");
 
 	stopper.store(false, Ordering::Relaxed);
@@ -304,17 +365,22 @@ fn contract_missing_net_change_impl(test_dir: &'static str) -> Result<(), libwal
 	let wallet1 = wallets[0].0.clone();
 	let mask1 = wallets[0].1.as_ref();
 
-	let res = wallet::controller::owner_single_use(Some(wallet1.clone()), mask1, None, |api, m| {
-		let args = &ContractNewArgsAPI {
-			setup_args: ContractSetupArgsAPI {
-				net_change: None,
+	let res = wallet::controller::owner_single_use(
+		wallet1.clone(),
+		mask1,
+		PathBuf::from(test_dir),
+		|api, m| {
+			let args = &ContractNewArgsAPI {
+				setup_args: ContractSetupArgsAPI {
+					net_change: None,
+					..Default::default()
+				},
 				..Default::default()
-			},
-			..Default::default()
-		};
-		api.contract_new(m, args)?;
-		Ok(())
-	});
+			};
+			api.contract_new(m, args)?;
+			Ok(())
+		},
+	);
 	assert!(res.is_err(), "expected an error when net_change is missing");
 
 	stopper.store(false, Ordering::Relaxed);

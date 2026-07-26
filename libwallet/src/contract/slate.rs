@@ -14,18 +14,18 @@
 
 //! Contract functions on the Slate
 
+use crate::backend::WalletBackend;
 use crate::grin_core::libtx::build;
 use crate::grin_core::libtx::proof::ProofBuilder;
 use crate::grin_keychain::Keychain;
 use crate::grin_util::secp::key::{PublicKey, SecretKey};
 use crate::slate::{Slate, SlateState};
 use crate::types::{Context, NodeClient};
-use crate::backend::WalletBackend;
 use crate::Error;
 
 use super::types::ProofArgs;
 use crate::contract::proofs::InvoiceProof;
-use ed25519_dalek::PublicKey as DalekPublicKey;
+use ed25519_dalek::VerifyingKey as DalekPublicKey;
 
 /// Add payment proof data to slate, noop for sender
 pub fn add_payment_proof<C, K>(

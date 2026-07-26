@@ -16,6 +16,7 @@
 //! with contracts. Can move outside of this module if early proofs are adopted
 //! by legacy transactions
 
+use crate::backend::WalletBackend;
 use crate::contract::types::ProofArgs;
 use crate::grin_core::libtx::aggsig;
 use crate::grin_core::libtx::secp_ser;
@@ -29,14 +30,12 @@ use crate::grin_util::static_secp_instance;
 use crate::slate::{PaymentInfo, PaymentMemo, Slate};
 use crate::slate_versions::ser as dalek_ser;
 use crate::types::{Context, NodeClient};
-use crate::backend::WalletBackend;
 use crate::{address, Error};
 use byteorder::{BigEndian, ByteOrder};
 use chrono::{DateTime, NaiveDateTime, Utc};
-use ed25519_dalek::Keypair as DalekKeypair;
-use ed25519_dalek::PublicKey as DalekPublicKey;
-use ed25519_dalek::SecretKey as DalekSecretKey;
 use ed25519_dalek::Signature as DalekSignature;
+use ed25519_dalek::SigningKey as DalekSecretKey;
+use ed25519_dalek::VerifyingKey as DalekPublicKey;
 use ed25519_dalek::{Signer, Verifier};
 use grin_util::secp::Message;
 use std::convert::TryInto;
@@ -159,7 +158,9 @@ impl Readable for InvoiceProofBin {
 		}
 
 		let sender_address_vec = reader.read_fixed_bytes(32)?;
-		let sender_address = DalekPublicKey::from_bytes(&sender_address_vec).unwrap();
+		let sender_address_bytes = <&[u8; 32]>::try_from(sender_address_vec.as_slice())
+			.map_err(|_| grin_ser::Error::CorruptedData)?;
+		let sender_address = DalekPublicKey::from_bytes(sender_address_bytes).unwrap();
 
 		let timestamp = reader.read_i64()?;
 
@@ -254,22 +255,14 @@ impl InvoiceProof {
 
 	/// Sign the invoice proof, provided all fields are populated
 	pub fn sign(&self, sec_key: &SecretKey) -> Result<(DalekSignature, DalekPublicKey), Error> {
-		let d_skey = match DalekSecretKey::from_bytes(&sec_key.0) {
-			Ok(k) => k,
-			Err(e) => {
-				return Err(Error::ED25519Key(format!("{}", e)));
-			}
-		};
-		let pub_key: DalekPublicKey = (&d_skey).into();
-		let keypair = DalekKeypair {
-			public: pub_key,
-			secret: d_skey,
-		};
+		let d_skey = DalekSecretKey::from_bytes(&sec_key.0);
+		let pub_key = d_skey.verifying_key();
 		let mut sig_data_bin = Vec::new();
-		grin_ser::serialize_default(&mut sig_data_bin, &InvoiceProofBin(self.clone()))
-			.map_err(|e| Error::GenericError(format!("InvoiceProof serialization failed: {}", e)))?;
+		grin_ser::serialize_default(&mut sig_data_bin, &InvoiceProofBin(self.clone())).map_err(
+			|e| Error::GenericError(format!("InvoiceProof serialization failed: {}", e)),
+		)?;
 
-		Ok((keypair.sign(&sig_data_bin), pub_key))
+		Ok((d_skey.sign(&sig_data_bin), pub_key))
 	}
 
 	/// Verify the signature of the invoice proof
@@ -285,8 +278,9 @@ impl InvoiceProof {
 
 		// Rebuild message
 		let mut sig_data_bin = Vec::new();
-		grin_ser::serialize_default(&mut sig_data_bin, &InvoiceProofBin(self.clone()))
-			.map_err(|e| Error::GenericError(format!("InvoiceProof serialization failed: {}", e)))?;
+		grin_ser::serialize_default(&mut sig_data_bin, &InvoiceProofBin(self.clone())).map_err(
+			|e| Error::GenericError(format!("InvoiceProof serialization failed: {}", e)),
+		)?;
 
 		if recipient_address
 			.verify(&sig_data_bin, self.promise_signature.as_ref().unwrap())

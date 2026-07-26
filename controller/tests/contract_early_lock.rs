@@ -30,6 +30,7 @@ use std::time::Duration;
 #[macro_use]
 mod common;
 use common::{clean_output_dir, create_wallets, setup};
+use std::path::PathBuf;
 
 /// contract new with --add-outputs
 fn contract_early_lock_tx_impl(test_dir: &'static str) -> Result<(), libwallet::Error> {
@@ -40,51 +41,66 @@ fn contract_early_lock_tx_impl(test_dir: &'static str) -> Result<(), libwallet::
 	let send_mask = wallets[0].1.as_ref();
 
 	// Confirm all our outputs are unspent
-	wallet::controller::owner_single_use(Some(send_wallet.clone()), send_mask, None, |api, m| {
-		let (_, commits) = api.retrieve_outputs(m, true, false, None)?;
-		for commit in commits.iter() {
-			assert_eq!(commit.output.status, OutputStatus::Unspent);
-		}
-		Ok(())
-	})?;
+	wallet::controller::owner_single_use(
+		send_wallet.clone(),
+		send_mask,
+		PathBuf::from(test_dir),
+		|api, m| {
+			let (_, commits) = api.retrieve_outputs(m, true, false, None)?;
+			for commit in commits.iter() {
+				assert_eq!(commit.output.status, OutputStatus::Unspent);
+			}
+			Ok(())
+		},
+	)?;
 
 	let mut slate = Slate::blank(0, false); // this gets overriden below
 
 	// Call contract 'new' with --add-outputs
-	wallet::controller::owner_single_use(Some(send_wallet.clone()), send_mask, None, |api, m| {
-		// Send wallet inititates a standard transaction with --send=80
-		let args = &ContractNewArgsAPI {
-			setup_args: ContractSetupArgsAPI {
-				net_change: Some(-80_000_000_000),
-				num_participants: 2,
-				add_outputs: true,
+	wallet::controller::owner_single_use(
+		send_wallet.clone(),
+		send_mask,
+		PathBuf::from(test_dir),
+		|api, m| {
+			// Send wallet inititates a standard transaction with --send=80
+			let args = &ContractNewArgsAPI {
+				setup_args: ContractSetupArgsAPI {
+					net_change: Some(-80_000_000_000),
+					num_participants: 2,
+					add_outputs: true,
+					..Default::default()
+				},
 				..Default::default()
-			},
-			..Default::default()
-		};
-		slate = api.contract_new(m, args)?;
-		Ok(())
-	})?;
+			};
+			slate = api.contract_new(m, args)?;
+			Ok(())
+		},
+	)?;
 	assert_eq!(slate.state, SlateState::Standard1);
 
 	// Assert we locked 2 inputs and prepared an unconfirmed change output
-	wallet::controller::owner_single_use(Some(send_wallet.clone()), send_mask, None, |api, m| {
-		let (_, commits) = api.retrieve_outputs(m, true, false, None)?;
-		// we locked the first two coinbase outputs
-		assert_eq!(commits[0].output.status, OutputStatus::Locked);
-		assert_eq!(commits[1].output.status, OutputStatus::Locked);
-		// we added a new unconfirmed change output
-		let new_output_idx = commits.len() - 1;
-		assert_eq!(
-			commits[new_output_idx].output.status,
-			OutputStatus::Unconfirmed
-		);
-		assert_eq!(
-			commits[new_output_idx].output.value,
-			2 * consensus::REWARD - 80_000_000_000 - my_fee_contribution(2, 1, 1, 2)?.fee()
-		);
-		Ok(())
-	})?;
+	wallet::controller::owner_single_use(
+		send_wallet.clone(),
+		send_mask,
+		PathBuf::from(test_dir),
+		|api, m| {
+			let (_, commits) = api.retrieve_outputs(m, true, false, None)?;
+			// we locked the first two coinbase outputs
+			assert_eq!(commits[0].output.status, OutputStatus::Locked);
+			assert_eq!(commits[1].output.status, OutputStatus::Locked);
+			// we added a new unconfirmed change output
+			let new_output_idx = commits.len() - 1;
+			assert_eq!(
+				commits[new_output_idx].output.status,
+				OutputStatus::Unconfirmed
+			);
+			assert_eq!(
+				commits[new_output_idx].output.value,
+				2 * consensus::REWARD - 80_000_000_000 - my_fee_contribution(2, 1, 1, 2)?.fee()
+			);
+			Ok(())
+		},
+	)?;
 
 	// let logging finish
 	stopper.store(false, Ordering::Relaxed);

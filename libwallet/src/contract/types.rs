@@ -16,7 +16,7 @@
 
 use crate::error::Error;
 use crate::slate_versions::ser as dalek_ser;
-use ed25519_dalek::PublicKey as DalekPublicKey;
+use ed25519_dalek::VerifyingKey as DalekPublicKey;
 
 /// Output selection args
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]

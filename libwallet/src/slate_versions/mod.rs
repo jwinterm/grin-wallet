@@ -155,8 +155,8 @@ pub mod tests {
 		slate, Error, Slate, Slatepacker, SlatepackerArgs, VersionedBinSlate, VersionedSlate,
 	};
 	use chrono::{DateTime, NaiveDateTime, Utc};
-	use ed25519_dalek::PublicKey as DalekPublicKey;
 	use ed25519_dalek::Signature as DalekSignature;
+	use ed25519_dalek::VerifyingKey as DalekPublicKey;
 	use grin_core::global::{set_local_chain_type, ChainTypes};
 	use grin_keychain::{ExtKeychain, Keychain, SwitchCommitmentType};
 	use std::convert::TryInto;
@@ -225,7 +225,8 @@ pub mod tests {
 		// current style payment proof
 		let raw_pubkey_str = "d03c09e9c19bb74aa9ea44e0fe5ae237a9bf40bddf0941064a80913a4459c8bb";
 		let b = from_hex(raw_pubkey_str).unwrap();
-		let d_pkey = DalekPublicKey::from_bytes(&b).unwrap();
+		let b = <&[u8; 32]>::try_from(b.as_slice()).unwrap();
+		let d_pkey = DalekPublicKey::from_bytes(b).unwrap();
 		// Need to remove milliseconds component for comparison. Won't be serialized
 		let ts = NaiveDateTime::from_timestamp_opt(Utc::now().timestamp(), 0).unwrap();
 		let ts = DateTime::<Utc>::from_utc(ts, Utc);
@@ -234,7 +235,7 @@ pub mod tests {
 			memo: [9; 32],
 		};
 
-		let psig = DalekSignature::from_bytes(&[0u8; 64]).unwrap();
+		let psig = DalekSignature::from_bytes(&[0u8; 64]);
 		slate_internal.payment_proof = Some(PaymentInfo {
 			sender_address: Some(d_pkey.clone()),
 			receiver_address: d_pkey.clone(),

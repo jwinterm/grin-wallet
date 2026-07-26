@@ -16,6 +16,7 @@
 //! implementation
 
 use crate::config::{TorConfig, WalletConfig};
+use crate::contract::types::ContractSetupArgsAPI;
 use crate::error::Error;
 use crate::grin_core::core::hash::Hash;
 use crate::grin_core::core::FeeFields;
@@ -27,13 +28,12 @@ use crate::grin_util::logger::LoggingConfig;
 use crate::grin_util::secp::key::{PublicKey, SecretKey};
 use crate::grin_util::secp::{self, pedersen, Secp256k1, Signature};
 use crate::grin_util::{ToHex, ZeroingString};
-use crate::contract::types::ContractSetupArgsAPI;
 use crate::slate::PaymentMemo;
 use crate::slate_versions::ser as dalek_ser;
 use crate::{InitTxArgs, SlateState, WalletBackend};
 use chrono::prelude::*;
-use ed25519_dalek::PublicKey as DalekPublicKey;
 use ed25519_dalek::Signature as DalekSignature;
+use ed25519_dalek::VerifyingKey as DalekPublicKey;
 use rand::rngs::mock::StepRng;
 use rand::thread_rng;
 use serde;

@@ -350,6 +350,12 @@ pub enum Error {
 	GenericError(String),
 }
 
+impl From<grin_wallet_config::ConfigError> for Error {
+	fn from(error: grin_wallet_config::ConfigError) -> Error {
+		Error::GenericError(format!("{}", error))
+	}
+}
+
 impl From<grin_store::Error> for Error {
 	fn from(error: grin_store::Error) -> Error {
 		// Preserve "not found" so callers can distinguish a missing item from other
