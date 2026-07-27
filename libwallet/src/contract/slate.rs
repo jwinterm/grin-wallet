@@ -171,9 +171,14 @@ pub fn transition_state(slate: &mut Slate) -> Result<(), Error> {
 		SlateState::Invoice2 => SlateState::Invoice3,
 		SlateState::Standard1 => SlateState::Standard2,
 		SlateState::Standard2 => SlateState::Standard3,
-		_ => {
-			debug!("Slate.state: {}", slate.state);
-			SlateState::Standard3
+		// Unknown, or a slate that has already reached its final state, is not something
+		// we can advance. We have signed by this point and the wallet state is persisted
+		// next, so report it rather than reporting a Standard3 that never happened.
+		ref s => {
+			return Err(Error::GenericError(format!(
+				"Cannot advance a contract slate in state {}",
+				s
+			)))
 		}
 	};
 	slate.state = new_state;
@@ -258,13 +263,27 @@ where
 	K: Keychain,
 {
 	debug!("contract::slate::add_keys => called");
+	let our_pub_key = PublicKey::from_secret_key(keychain.secp(), &context.sec_key)?;
+	let our_pub_nonce = PublicKey::from_secret_key(keychain.secp(), &context.sec_nonce)?;
+	// An entry is ours only when both keys match, which is what add_participant_info and
+	// fill_round_2 use. Our excess paired with a nonce that is not ours cannot have come
+	// from us, so reject it rather than treating the entry as ours: we would otherwise
+	// append a further participant and sign nothing.
+	if slate
+		.participant_data
+		.iter()
+		.any(|p| p.public_blind_excess == our_pub_key && p.public_nonce != our_pub_nonce)
+	{
+		return Err(Error::GenericError(
+			"Slate carries our public excess with a different nonce".to_string(),
+		));
+	}
 	// Guard against a tampered slate that already carries the full participant set.
 	// Re-adding our own info is idempotent, so only block when we are not already in it.
-	let our_pub_key = PublicKey::from_secret_key(keychain.secp(), &context.sec_key)?;
 	let already_ours = slate
 		.participant_data
 		.iter()
-		.any(|p| p.public_blind_excess == our_pub_key);
+		.any(|p| p.public_blind_excess == our_pub_key && p.public_nonce == our_pub_nonce);
 	if !already_ours && slate.participant_data.len() >= slate.num_participants as usize {
 		return Err(Error::GenericError(format!(
 			"Slate already has the expected {} participant(s)",
@@ -272,4 +291,67 @@ where
 		)));
 	}
 	slate.add_participant_info(keychain, context, None)
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use crate::grin_keychain::{ExtKeychain, Keychain as _, SwitchCommitmentType};
+	use crate::slate::ParticipantData;
+
+	fn keychain_and_context() -> (ExtKeychain, Context) {
+		let keychain = ExtKeychain::from_random_seed(true).unwrap();
+		let parent_key_id = ExtKeychain::derive_key_id(1, 0, 0, 0, 0);
+		let context = Context::new(keychain.secp(), &parent_key_id, true, true);
+		(keychain, context)
+	}
+
+	#[test]
+	fn add_keys_rejects_our_excess_with_a_foreign_nonce() {
+		let (keychain, mut context) = keychain_and_context();
+		let our_excess = PublicKey::from_secret_key(keychain.secp(), &context.sec_key).unwrap();
+		let other_id = ExtKeychain::derive_key_id(1, 1, 0, 0, 0);
+		let other_key = keychain
+			.derive_key(0, &other_id, SwitchCommitmentType::Regular)
+			.unwrap();
+		let other = PublicKey::from_secret_key(keychain.secp(), &other_key).unwrap();
+
+		let mut slate = Slate::blank(2, false);
+		slate.participant_data.push(ParticipantData {
+			public_blind_excess: our_excess,
+			public_nonce: other,
+			part_sig: None,
+		});
+		assert!(add_keys(&mut slate, &keychain, &mut context).is_err());
+	}
+
+	#[test]
+	fn transition_state_rejects_states_it_cannot_advance() {
+		for state in [
+			SlateState::Unknown,
+			SlateState::Standard3,
+			SlateState::Invoice3,
+		] {
+			let mut slate = Slate::blank(2, false);
+			slate.state = state.clone();
+			assert!(
+				transition_state(&mut slate).is_err(),
+				"expected {} to be rejected",
+				state
+			);
+		}
+
+		// The transitions the contract flows actually use are still accepted
+		for (from, to) in [
+			(SlateState::Standard1, SlateState::Standard2),
+			(SlateState::Standard2, SlateState::Standard3),
+			(SlateState::Invoice1, SlateState::Invoice2),
+			(SlateState::Invoice2, SlateState::Invoice3),
+		] {
+			let mut slate = Slate::blank(2, false);
+			slate.state = from;
+			transition_state(&mut slate).unwrap();
+			assert_eq!(slate.state, to);
+		}
+	}
 }
