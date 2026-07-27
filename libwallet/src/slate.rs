@@ -420,14 +420,15 @@ impl Slate {
 	where
 		K: Keychain,
 	{
-		for i in 0..self.num_participants() as usize {
-			let calc_pub_excess = PublicKey::from_secret_key(keychain.secp(), &context.sec_key)?;
-			let calc_pub_nonce = PublicKey::from_secret_key(keychain.secp(), &context.sec_nonce)?;
-
+		let calc_pub_excess = PublicKey::from_secret_key(keychain.secp(), &context.sec_key)?;
+		let calc_pub_nonce = PublicKey::from_secret_key(keychain.secp(), &context.sec_nonce)?;
+		// Iterate over the entries the slate actually carries rather than indexing by
+		// position up to num_participants, which a counterparty can send short. Both keys
+		// have to match, as fill_round_2 requires, so an entry sharing only one of them is
+		// not mistaken for ours.
+		for (i, p) in self.participant_data.iter().enumerate() {
 			// find my entry
-			if self.participant_data[i].public_blind_excess == calc_pub_excess
-				|| self.participant_data[i].public_nonce == calc_pub_nonce
-			{
+			if p.public_blind_excess == calc_pub_excess && p.public_nonce == calc_pub_nonce {
 				return Ok(i);
 			}
 		}
@@ -458,12 +459,11 @@ impl Slate {
 		)?;
 		let pub_excess = PublicKey::from_secret_key(keychain.secp(), &sec_key)?;
 		let pub_nonce = PublicKey::from_secret_key(keychain.secp(), &sec_nonce)?;
-		for i in 0..self.num_participants() as usize {
+		// As in find_index_matching_context, iterate the entries we actually have
+		for p in self.participant_data.iter_mut() {
 			// find my entry
-			if self.participant_data[i].public_blind_excess == pub_excess
-				&& self.participant_data[i].public_nonce == pub_nonce
-			{
-				self.participant_data[i].part_sig = Some(sig_part);
+			if p.public_blind_excess == pub_excess && p.public_nonce == pub_nonce {
+				p.part_sig = Some(sig_part);
 				break;
 			}
 		}
@@ -1612,5 +1612,73 @@ impl From<OutputFeaturesV4> for OutputFeatures {
 			1 => OutputFeatures::Coinbase,
 			0 | _ => OutputFeatures::Plain,
 		}
+	}
+}
+
+#[cfg(test)]
+mod test {
+	use super::*;
+	use crate::grin_keychain::ExtKeychain;
+
+	// A counterparty controls the participant list, so it can be shorter than
+	// num_participants claims, or hold an entry that matches only one of our two keys.
+	fn context_and_keys() -> (ExtKeychain, Context, PublicKey, PublicKey) {
+		let keychain = ExtKeychain::from_random_seed(true).unwrap();
+		let parent_key_id = ExtKeychain::derive_key_id(1, 0, 0, 0, 0);
+		let context = Context::new(keychain.secp(), &parent_key_id, true, true);
+		let our_excess = PublicKey::from_secret_key(keychain.secp(), &context.sec_key).unwrap();
+		let our_nonce = PublicKey::from_secret_key(keychain.secp(), &context.sec_nonce).unwrap();
+		(keychain, context, our_excess, our_nonce)
+	}
+
+	#[test]
+	fn find_index_handles_short_participant_list() {
+		let (keychain, context, _, _) = context_and_keys();
+		// A key that matches neither of ours, so the search runs off the end of the list
+		let other_id = ExtKeychain::derive_key_id(1, 1, 0, 0, 0);
+		let other_key = keychain
+			.derive_key(0, &other_id, SwitchCommitmentType::Regular)
+			.unwrap();
+		let other = PublicKey::from_secret_key(keychain.secp(), &other_key).unwrap();
+
+		let mut slate = Slate::blank(2, false);
+		// Claims two participants but carries one, and it is not ours
+		slate.num_participants = 2;
+		slate.participant_data.push(ParticipantData {
+			public_blind_excess: other,
+			public_nonce: other,
+			part_sig: None,
+		});
+		assert!(slate
+			.find_index_matching_context(&keychain, &context)
+			.is_err());
+	}
+
+	#[test]
+	fn find_index_requires_both_keys_to_match() {
+		let (keychain, context, our_excess, our_nonce) = context_and_keys();
+		let mut slate = Slate::blank(2, false);
+		// Shares our nonce but not our excess, so it is not our entry
+		slate.participant_data.push(ParticipantData {
+			public_blind_excess: our_nonce,
+			public_nonce: our_nonce,
+			part_sig: None,
+		});
+		assert!(slate
+			.find_index_matching_context(&keychain, &context)
+			.is_err());
+
+		// Both keys match, so this one is ours
+		slate.participant_data.push(ParticipantData {
+			public_blind_excess: our_excess,
+			public_nonce: our_nonce,
+			part_sig: None,
+		});
+		assert_eq!(
+			slate
+				.find_index_matching_context(&keychain, &context)
+				.unwrap(),
+			1
+		);
 	}
 }

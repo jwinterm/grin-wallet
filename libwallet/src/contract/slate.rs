@@ -197,6 +197,16 @@ where
 	K: Keychain,
 {
 	debug!("contract::slate::sign => called");
+	// The counterparty controls the participant list, so require it to hold exactly the
+	// participants the slate declares before we sign over it. Setup has already added our
+	// own entry by this point.
+	if slate.participant_data.len() != slate.num_participants as usize {
+		return Err(Error::GenericError(format!(
+			"Expected {} participant(s) before signing, found {}",
+			slate.num_participants,
+			slate.participant_data.len()
+		)));
+	}
 	let keychain = w.keychain(keychain_mask)?;
 	slate.fill_round_2(&keychain, &context.sec_key, &context.sec_nonce)?;
 	debug!(

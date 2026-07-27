@@ -97,8 +97,16 @@ where
 			)?;
 			let sender_address = OnionV3Address::from_private(&sender_key.0)?;
 
-			// We're looking for the OTHER party here, the recipient
+			// We're looking for the OTHER party here, the recipient. The 'xor 1' pairing
+			// only holds for a two-party slate, so check that before indexing: a slate
+			// with a shorter participant list would otherwise panic here.
 			let sender_index = slate.find_index_matching_context(&keychain, context)?;
+			if slate.participant_data.len() != 2 {
+				return Err(Error::GenericError(format!(
+					"Expected 2 participants for a payment proof, found {}",
+					slate.participant_data.len()
+				)));
+			}
 			let recipient_index = sender_index ^ 1;
 
 			tx_log_entry.payment_proof = Some(StoredProofInfo {
