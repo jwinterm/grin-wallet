@@ -90,15 +90,25 @@ where
 	// For either party, the following MUST hold for the inputs the function returns:
 	//  Σmy_inputs >= Σmy_outputs + my_fee_cost
 	// Each party later balances the equation by adding an additional output (change output or receiver output)
-	let net_change = setup_args.net_change.unwrap();
+	let net_change = setup_args.net_change.ok_or_else(|| {
+		Error::GenericError("Contract requires a net change (--send or --receive)".to_string())
+	})?;
 	let custom_outputs_amount_sum = setup_args.selection_args.sum_output_amounts()?;
+	// unsigned_abs, as abs() panics on i64::MIN
 	let pay_amount = if net_change < 0 {
-		net_change.abs() as u64
+		net_change.unsigned_abs()
 	} else {
 		0
 	};
 	// Add the amount we pay and the custom outputs to rhs of the equation
-	let rhs = pay_amount + custom_outputs_amount_sum;
+	let rhs = pay_amount
+		.checked_add(custom_outputs_amount_sum)
+		.ok_or_else(|| {
+			Error::GenericError(format!(
+				"Amount overflow: pay amount {} plus custom outputs {}",
+				pay_amount, custom_outputs_amount_sum
+			))
+		})?;
 	let required_inputs = setup_args.selection_args.required_inputs();
 	let is_payjoin = setup_args.selection_args.is_payjoin();
 	let is_self_spend = setup_args.num_participants == 1;
@@ -258,26 +268,41 @@ fn build_output_amount_list(
 	my_fee_cost: u64,
 	setup_args: &ContractSetupArgsAPI,
 ) -> Result<Vec<u64>, Error> {
-	let expected_net_change = setup_args.net_change.unwrap();
+	let expected_net_change = setup_args.net_change.ok_or_else(|| {
+		Error::GenericError("Contract requires a net change (--send or --receive)".to_string())
+	})?;
 	let mut my_output_amounts = setup_args.selection_args.output_amounts()?;
-	let custom_outputs_sum = my_output_amounts.iter().sum::<u64>();
-	// We know that `Σmy_inputs >= Σmy_outputs + my_fee_cost` holds so we balance the equation by adding
-	// an additional output holding the missing amount (change output or receiver output)
-	// Checked conversions so a very large amount can't wrap into a wrong (possibly negative) change.
-	let input_minus_outputs = i64::try_from(my_input_sum - custom_outputs_sum).map_err(|_| {
-		Error::GenericError(format!(
-			"input sum {} exceeds i64",
-			my_input_sum - custom_outputs_sum
-		))
+	let custom_outputs_sum = my_output_amounts
+		.iter()
+		.try_fold(0u64, |acc, v| acc.checked_add(*v))
+		.ok_or_else(|| Error::GenericError("Custom output amounts overflow".to_string()))?;
+	// We balance `Σmy_inputs >= Σmy_outputs + my_fee_cost` by adding an output holding the
+	// missing amount (change output or receiver output). A receiver that is not doing a
+	// payjoin contributes no inputs while --make-outputs is still allowed, so my_input_sum
+	// can be below custom_outputs_sum: the whole equation is evaluated in checked i64 so
+	// that case is reported rather than wrapping.
+	let input_sum = i64::try_from(my_input_sum)
+		.map_err(|_| Error::GenericError(format!("input sum {} exceeds i64", my_input_sum)))?;
+	let outputs_sum = i64::try_from(custom_outputs_sum).map_err(|_| {
+		Error::GenericError(format!("output sum {} exceeds i64", custom_outputs_sum))
 	})?;
 	let fee_cost = i64::try_from(my_fee_cost)
 		.map_err(|_| Error::GenericError(format!("fee cost {} exceeds i64", my_fee_cost)))?;
-	let my_change_output_amount = input_minus_outputs + expected_net_change - fee_cost;
+	let my_change_output_amount = input_sum
+		.checked_sub(outputs_sum)
+		.and_then(|v| v.checked_add(expected_net_change))
+		.and_then(|v| v.checked_sub(fee_cost))
+		.ok_or_else(|| {
+			Error::GenericError(format!(
+				"contract::selection::build_output_amount_list => amount overflow. Values: my_input_sum: {}, custom_outputs_sum: {}, expected_net_change: {}, my_fee_cost: {}",
+				input_sum, outputs_sum, expected_net_change, fee_cost
+			))
+		})?;
 	// A negative change output would mean the selection math is off; reject it explicitly.
 	if my_change_output_amount < 0 {
 		return Err(Error::GenericError(format!(
-			"contract::selection::build_output_amount_list => negative change output. Values: my_input_sum: {}, expected_net_change: {}, my_fee_cost: {}",
-			my_input_sum as i64, expected_net_change, my_fee_cost as i64
+			"contract::selection::build_output_amount_list => negative change output. Values: my_input_sum: {}, custom_outputs_sum: {}, expected_net_change: {}, my_fee_cost: {}",
+			input_sum, outputs_sum, expected_net_change, fee_cost
 		)));
 	}
 	// Add our change/receiver output (which can be a zero-value output) to the list of outputs
@@ -336,6 +361,39 @@ mod tests {
 			});
 		}
 		rv
+	}
+
+	// A receiver that is not doing a payjoin contributes no inputs, while --make-outputs
+	// is still allowed, so the output balance is computed from a zero input sum against a
+	// non-zero custom output sum. That has to be reported, not wrapped around.
+	#[test]
+	fn receiver_no_payjoin_with_custom_outputs() {
+		let setup_args = ContractSetupArgsAPI {
+			net_change: Some(5_000_000_000),
+			selection_args: OutputSelectionArgs {
+				// no use_inputs, so is_payjoin() is false and no inputs are selected
+				make_outputs: Some(vec![1_000_000_000]),
+				..Default::default()
+			},
+			..Default::default()
+		};
+		// Receiving more than the custom outputs and the fee leaves a valid balance
+		let my_fee = my_fee_contribution(0, 2, 1, 2).unwrap();
+		let amounts = build_output_amount_list(0, my_fee.fee(), &setup_args).unwrap();
+		assert_eq!(amounts.len(), 2);
+		assert_eq!(amounts[0], 1_000_000_000);
+		assert_eq!(amounts[1], 5_000_000_000 - 1_000_000_000 - my_fee.fee());
+
+		// Custom outputs beyond what we receive are rejected rather than underflowing
+		let setup_args = ContractSetupArgsAPI {
+			net_change: Some(1_000_000_000),
+			selection_args: OutputSelectionArgs {
+				make_outputs: Some(vec![5_000_000_000]),
+				..Default::default()
+			},
+			..Default::default()
+		};
+		assert!(build_output_amount_list(0, my_fee.fee(), &setup_args).is_err());
 	}
 
 	#[test]

@@ -72,7 +72,7 @@ where
 
 	// If we have a local context for this slate we've agreed on a net change; surface it.
 	let agreed_net_change = match w.get_private_context(keychain_mask, slate.id.as_bytes()) {
-		Ok(ctx) => Some(ctx.get_net_change()),
+		Ok(ctx) => Some(ctx.get_net_change()?),
 		Err(Error::NotFoundErr(_)) => None,
 		Err(e) => return Err(e),
 	};

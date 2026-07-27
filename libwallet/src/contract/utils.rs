@@ -150,18 +150,19 @@ where
 			debug!("contract::sign => context found");
 			// We have a context so we must have agreed on a certain net_change value in Context.net_change.
 			// If we have both Context.net_change and setup_args.net_change, then they must be equal.
+			let ctx_net_change = ctx.get_net_change()?;
 			match expected_net_change {
 				Some(args_net_change) => {
-					if ctx.get_net_change() != args_net_change {
+					if ctx_net_change != args_net_change {
 						return Err(Error::GenericError(format!(
 							"Expected net change mismatch! Context.net_change: {}, setup_args.net_change: {}",
-							ctx.get_net_change(), args_net_change
+							ctx_net_change, args_net_change
 						)));
 					}
 				}
 				None => (),
 			}
-			expected_net_change = Some(ctx.get_net_change());
+			expected_net_change = Some(ctx_net_change);
 		}
 		Err(Error::NotFoundErr(_)) => {
 			debug!("contract::utils::get_net_change => context not found")
@@ -212,7 +213,7 @@ where
 	let mut tx_log_entry = {
 		if !context.log_id.is_some() {
 			// We create a new entry with log_id=0 and but replace it with the real id before committing
-			create_tx_log_entry(slate, context.get_net_change(), parent_key_id.clone(), 0)?
+			create_tx_log_entry(slate, context.get_net_change()?, parent_key_id.clone(), 0)?
 		} else {
 			w.get_tx_log_entry(parent_key_id.clone(), context.log_id.unwrap())?
 				.unwrap()

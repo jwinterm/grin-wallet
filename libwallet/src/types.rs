@@ -455,9 +455,16 @@ impl Context {
 }
 
 impl Context {
-	/// Returns net_change for the contract
-	pub fn get_net_change(&self) -> i64 {
-		self.setup_args.as_ref().unwrap().net_change.unwrap()
+	/// Returns net_change for the contract. Context is shared with the standard
+	/// transaction flows, where setup_args is None, so a context that does not belong to
+	/// a contract is reported rather than unwrapped.
+	pub fn get_net_change(&self) -> Result<i64, Error> {
+		self.setup_args
+			.as_ref()
+			.and_then(|args| args.net_change)
+			.ok_or_else(|| {
+				Error::GenericError("Context carries no contract net change".to_string())
+			})
 	}
 
 	/// Tracks an output contributing to my excess value (if it needs to

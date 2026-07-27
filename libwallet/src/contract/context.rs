@@ -94,7 +94,9 @@ where
 	updater::refresh_outputs(w, keychain_mask, parent_key_id, false)?;
 
 	// Fee contribution estimation
-	let net_change = setup_args.net_change.unwrap();
+	let net_change = setup_args.net_change.ok_or_else(|| {
+		Error::GenericError("Contract requires a net change (--send or --receive)".to_string())
+	})?;
 	// select inputs to estimate fee cost
 	let (inputs, _, my_fee) =
 		prepare_outputs(w, &parent_key_id, current_height, &setup_args, None)?;
@@ -129,7 +131,7 @@ where
 	context.setup_args = Some(setup_args.clone());
 	debug!(
 		"Setting Context.net_change as: {}",
-		context.get_net_change()
+		context.get_net_change()?
 	);
 
 	Ok(context)
@@ -152,7 +154,10 @@ where
 		debug!("contract::utils::add_outputs => outputs have already been added, returning.");
 		return Ok(());
 	}
-	let setup_args = context.setup_args.as_ref().unwrap();
+	let setup_args = context
+		.setup_args
+		.as_ref()
+		.ok_or_else(|| Error::GenericError("Context carries no contract setup args".to_string()))?;
 	debug!("contract::utils::add_outputs => adding outputs");
 	let current_height = w.w2n_client().get_chain_tip()?.0;
 	let parent_key_id = &context.parent_key_id;
@@ -165,7 +170,19 @@ where
 		&setup_args,
 		context.fee,
 	)?;
-	assert_eq!(my_fee.fee(), context.fee.unwrap().fee(), "my_fee!=ctx.fee");
+	// An old or damaged context, or a future change to the fee schedule, can reach this
+	// with a stored fee that no longer matches what we just recomputed. Report both
+	// values instead of terminating the wallet.
+	let ctx_fee = context
+		.fee
+		.ok_or_else(|| Error::GenericError("Context carries no fee".to_string()))?;
+	if my_fee.fee() != ctx_fee.fee() {
+		return Err(Error::GenericError(format!(
+			"Recomputed fee {} does not match the fee stored in the context {}",
+			my_fee.fee(),
+			ctx_fee.fee()
+		)));
+	}
 	// Add selected/created inputs/outputs to the context
 	add_inputs_to_ctx(context, &inputs)?;
 	add_outputs_to_ctx(w, keychain_mask, context, my_output_amounts)?;
