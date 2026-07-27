@@ -296,7 +296,7 @@ where
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::grin_keychain::{ExtKeychain, Keychain as _, SwitchCommitmentType};
+	use crate::grin_keychain::{ExtKeychain, SwitchCommitmentType};
 	use crate::slate::ParticipantData;
 
 	fn keychain_and_context() -> (ExtKeychain, Context) {

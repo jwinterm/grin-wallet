@@ -354,6 +354,9 @@ where
 	if tx_vec.len() == 0 {
 		return Err(Error::TransactionDoesntExist(tx_id_string));
 	}
+	// Collect the entries and their outputs first: the batch that cancels them borrows the
+	// wallet, and a slate can have several entries which must all be cancelled together.
+	let mut to_cancel = vec![];
 	for tx in tx_vec {
 		debug!("cancel_tx: tx: {}", tx.tx_type);
 		match tx.tx_type {
@@ -375,9 +378,9 @@ where
 			Some(&parent_key_id),
 		)?;
 		let outputs = res.iter().map(|m| m.output.clone()).collect();
-		updater::cancel_tx_and_outputs(wallet, keychain_mask, tx, outputs, parent_key_id)?;
+		to_cancel.push((tx, outputs));
 	}
-	Ok(())
+	updater::cancel_txs_and_outputs(wallet, keychain_mask, to_cancel, parent_key_id)
 }
 
 /// Update the stored transaction (this update needs to happen when the TX is finalised)
