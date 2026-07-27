@@ -378,8 +378,15 @@ where
 	// work tied to the early-payment-proof RFC.
 	let (invoice_proof, promise_signature, receiver_address) =
 		generate_invoice_signature(wallet, keychain_mask, slate, context, proof_args)?;
-	// Whole seconds only; the sub-second component is not serialized.
-	let timestamp = DateTime::from_timestamp(Utc::now().timestamp(), 0).unwrap();
+	// Carry over the timestamp the promise signature was made over rather than reading
+	// the clock a second time. The signature binds it, so a tick between the two reads
+	// would leave a proof that cannot verify.
+	let timestamp = DateTime::from_timestamp(invoice_proof.timestamp, 0).ok_or_else(|| {
+		Error::GenericError(format!(
+			"Invalid proof timestamp: {}",
+			invoice_proof.timestamp
+		))
+	})?;
 
 	let proof = PaymentInfo {
 		sender_address: proof_args.sender_address.clone(),
