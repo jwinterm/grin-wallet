@@ -590,16 +590,18 @@ pub fn print_slatepack<L, C, K>(
 	counterparty_addr: &str,
 	out_file: Option<String>,
 	as_json: bool,
-) -> ()
+) -> Result<(), libwallet::Error>
 where
 	L: WalletLCProvider<'static, C, K> + 'static,
 	C: NodeClient + 'static,
 	K: keychain::Keychain + 'static,
 {
 	// For now, we don't compact slates with sl.compact(). We first make them work without compaction.
-	let slate_out =
-		prepare_slatepack(api, keychain_mask, &slate, &counterparty_addr, out_file).unwrap();
+	// Writing the file, serializing and encrypting can all fail for ordinary reasons, so
+	// report them through the normal CLI error path rather than unwrapping.
+	let slate_out = prepare_slatepack(api, keychain_mask, &slate, &counterparty_addr, out_file)?;
 	slate_out.print(as_json);
+	Ok(())
 }
 
 pub fn prepare_slatepack<L, C, K>(
@@ -1665,7 +1667,7 @@ where
 			args.counterparty_addr.as_deref().unwrap_or(""),
 			args.outfile,
 			args.as_json,
-		);
+		)?;
 
 		Ok(())
 	})?;
@@ -1758,9 +1760,9 @@ where
 		// Read the slatepack from stdin
 		println!("Paste slatepack:");
 		let mut slatepack_msg = String::new();
-		io::stdin()
-			.read_line(&mut slatepack_msg)
-			.expect("Failed to read from stdin");
+		io::stdin().read_line(&mut slatepack_msg).map_err(|e| {
+			libwallet::Error::GenericError(format!("Failed to read from stdin: {}", e))
+		})?;
 
 		// Decrypt the slate, sign it and encrypt it for the next party
 		// TODO: Make sure you get the counterparty_addr and slate with 1 call.
@@ -1797,7 +1799,7 @@ where
 			&counterparty_addr,
 			args.outfile,
 			args.as_json,
-		);
+		)?;
 
 		if broadcast_tx {
 			let is_finalized = can_finalize(&slate);
