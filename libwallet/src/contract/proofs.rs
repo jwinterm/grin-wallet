@@ -38,7 +38,6 @@ use ed25519_dalek::SigningKey as DalekSecretKey;
 use ed25519_dalek::VerifyingKey as DalekPublicKey;
 use ed25519_dalek::{Signer, Verifier};
 use grin_util::secp::Message;
-use std::convert::TryInto;
 
 /// All elements required to validate a proof within a single struct
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
@@ -138,12 +137,15 @@ impl Writeable for InvoiceProofBin {
 	}
 }
 
-/// Not strictly necessary, but useful for tests
+/// Currently only exercised by the tests, but this is a normal Readable, so every
+/// externally shaped value it reads is mapped to a serialization error rather than
+/// unwrapped.
 impl Readable for InvoiceProofBin {
 	fn read<R: Reader>(reader: &mut R) -> Result<InvoiceProofBin, grin_ser::Error> {
 		// first 8 bytes are proof type + 7 bytes worth of amount
 		let mut amount = reader.read_u64()?;
-		let proof_type: u8 = ((amount & 0xFF00_0000_0000_0000) >> 56).try_into().unwrap();
+		// The shift leaves a single byte, so this conversion cannot lose data
+		let proof_type = ((amount & 0xFF00_0000_0000_0000) >> 56) as u8;
 		amount &= 0x00FF_FFFF_FFFF_FFFF;
 
 		let receiver_public_nonce;
@@ -152,22 +154,25 @@ impl Readable for InvoiceProofBin {
 			let static_secp = static_secp_instance();
 			let static_secp = static_secp.lock();
 			receiver_public_nonce =
-				PublicKey::from_slice(&static_secp, &reader.read_fixed_bytes(33)?).unwrap();
+				PublicKey::from_slice(&static_secp, &reader.read_fixed_bytes(33)?)
+					.map_err(|_| grin_ser::Error::CorruptedData)?;
 			receiver_public_excess =
-				PublicKey::from_slice(&static_secp, &reader.read_fixed_bytes(33)?).unwrap();
+				PublicKey::from_slice(&static_secp, &reader.read_fixed_bytes(33)?)
+					.map_err(|_| grin_ser::Error::CorruptedData)?;
 		}
 
 		let sender_address_vec = reader.read_fixed_bytes(32)?;
 		let sender_address_bytes = <&[u8; 32]>::try_from(sender_address_vec.as_slice())
 			.map_err(|_| grin_ser::Error::CorruptedData)?;
-		let sender_address = DalekPublicKey::from_bytes(sender_address_bytes).unwrap();
+		let sender_address = DalekPublicKey::from_bytes(sender_address_bytes)
+			.map_err(|_| grin_ser::Error::CorruptedData)?;
 
 		let timestamp = reader.read_i64()?;
 
 		let memo_type = reader.read_u8()?;
 		let memo = reader.read_fixed_bytes(32)?;
-		let mut memo_bytes: [u8; 32] = [0u8; 32];
-		memo_bytes.copy_from_slice(&memo);
+		let memo_bytes =
+			<[u8; 32]>::try_from(memo.as_slice()).map_err(|_| grin_ser::Error::CorruptedData)?;
 
 		let res = InvoiceProof {
 			proof_type,
@@ -454,6 +459,37 @@ mod tests {
 
 		let proof_deser: InvoiceProofBin = grin_ser::deserialize_default(&mut &vec[..]).unwrap();
 		assert_eq!(invoice_proof, proof_deser.0);
+		Ok(())
+	}
+
+	// Every key the reader takes from the encoded form is externally shaped, so a
+	// corrupted one has to come back as a serialization error rather than a panic.
+	#[test]
+	fn deser_invoice_proof_bin_rejects_bad_keys() -> Result<(), Error> {
+		let mut slate = populate_test_slate()?;
+		slate.amount = 1234;
+		slate.payment_proof.as_mut().unwrap().promise_signature = None;
+		let invoice_proof = InvoiceProof::from_slate(&slate, 1, None)?;
+
+		let mut vec = Vec::new();
+		grin_ser::serialize_default(&mut vec, &InvoiceProofBin(invoice_proof))
+			.expect("Serialization Failed");
+
+		// The two secp keys follow the 8 amount bytes, then the ed25519 sender address
+		for offset in [8, 41, 74] {
+			let mut corrupted = vec.clone();
+			// An all-ones prefix is not a valid point in either encoding
+			for b in corrupted[offset..offset + 8].iter_mut() {
+				*b = 0xFF;
+			}
+			let res: Result<InvoiceProofBin, _> =
+				grin_ser::deserialize_default(&mut &corrupted[..]);
+			assert!(
+				res.is_err(),
+				"corrupting offset {} should not parse",
+				offset
+			);
+		}
 		Ok(())
 	}
 }
