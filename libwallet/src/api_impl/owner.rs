@@ -29,7 +29,9 @@ use crate::grin_util::{Mutex, ToHex};
 use crate::util::OnionV3Address;
 
 use crate::api_impl::owner_updater::StatusMessage;
-use crate::contract::types::{ContractNewArgsAPI, ContractRevokeArgsAPI, ContractSetupArgsAPI};
+use crate::contract::types::{
+	ContractNewArgsAPI, ContractRevokeArgsAPI, ContractSetupArgsAPI, ContractView,
+};
 use crate::grin_keychain::{BlindingFactor, Identifier, Keychain, SwitchCommitmentType};
 
 use crate::internal::{keys, scan, selection, tx, updater};
@@ -1512,6 +1514,20 @@ where
 	K: Keychain,
 {
 	contract::new(&mut *w, keychain_mask, &args.setup_args, None)
+}
+
+/// View a transaction contract
+pub fn contract_view<C, K>(
+	w: &mut WalletBackend<C, K>,
+	keychain_mask: Option<&SecretKey>,
+	slate: &Slate,
+) -> Result<ContractView, Error>
+where
+	C: NodeClient,
+	K: Keychain,
+{
+	let mut slate = slate.clone();
+	contract::view(&mut *w, keychain_mask, &mut slate, "")
 }
 
 /// Sign transaction contract

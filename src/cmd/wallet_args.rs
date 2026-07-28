@@ -1140,6 +1140,35 @@ pub fn parse_contract_setup_args(
 	})
 }
 
+pub fn parse_contract_view_args(
+	args: &ArgMatches,
+) -> Result<command::ContractViewArgs, ParseError> {
+	let input_file = match args.is_present("input") {
+		true => {
+			let file = parse_required(args, "input")?.to_owned();
+			if !Path::new(&file).is_file() {
+				return Err(ParseError::ArgumentError(format!(
+					"File {} not found.",
+					&file
+				)));
+			}
+			Some(file)
+		}
+		false => None,
+	};
+
+	// As for receive, prompt for the slatepack when no file was given
+	let mut input_slatepack_message = None;
+	if input_file.is_none() {
+		input_slatepack_message = Some(prompt_slatepack()?);
+	}
+
+	Ok(command::ContractViewArgs {
+		input_file,
+		input_slatepack_message,
+	})
+}
+
 pub fn parse_contract_revoke_args(
 	args: &ArgMatches,
 ) -> Result<command::ContractRevokeArgs, ParseError> {
@@ -1489,8 +1518,9 @@ where
 				let broadcast_tx = !sign_args.is_present("no-broadcast");
 				command::contract_sign(owner_api, km, setup_args, broadcast_tx)
 			}
-			("view", Some(_view_args)) => {
-				Err(Error::ArgumentError(String::from("Not implemented")).into())
+			("view", Some(view_args)) => {
+				let a = arg_parse!(parse_contract_view_args(&view_args));
+				command::contract_view(owner_api, km, a)
 			}
 			("revoke", Some(revoke_args)) => {
 				let a = arg_parse!(parse_contract_revoke_args(&revoke_args));

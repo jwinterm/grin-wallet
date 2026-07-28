@@ -19,6 +19,7 @@ use crate::contract::types::ContractView;
 use crate::error::Error;
 use crate::grin_keychain::Keychain;
 use crate::grin_util::secp::key::SecretKey;
+use crate::internal::updater;
 use crate::slate::{Slate, SlateState};
 use crate::types::NodeClient;
 
@@ -61,7 +62,12 @@ where
 		})?),
 		_ => None,
 	};
-	let is_executed = false;
+	// A contract is executed once the transaction it produced has confirmed. That is
+	// recorded on our own tx log entry for this slate, so no chain lookup is needed; a
+	// slate we have never signed simply has no entry and is not executed.
+	let is_executed = updater::retrieve_txs(w, None, Some(slate.id), None, None, false)?
+		.iter()
+		.any(|tx| tx.confirmed);
 	// Count signatures present (a participant is "complete" once it has a partial sig).
 	let num_sigs = slate
 		.participant_data

@@ -541,6 +541,12 @@ subcommands:
                     takes_value: false
         - view:
             about: View a contract
+            args:
+                - input:
+                    help: Slatepack file containing the contract to view.
+                    short: i
+                    long: input
+                    takes_value: true
         - revoke:
             about: Attempt to revoke a contract
             args:

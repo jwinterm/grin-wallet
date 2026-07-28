@@ -25,7 +25,7 @@ use crate::libwallet::api_impl::types::update_tx_slate_state;
 use crate::libwallet::api_impl::{owner, owner_updater};
 use crate::libwallet::contract::proofs::InvoiceProof;
 use crate::libwallet::contract::types::{
-	ContractNewArgsAPI, ContractRevokeArgsAPI, ContractSetupArgsAPI,
+	ContractNewArgsAPI, ContractRevokeArgsAPI, ContractSetupArgsAPI, ContractView,
 };
 use crate::libwallet::{
 	AcctPathMapping, BuiltOutput, Error, InitTxArgs, IssueInvoiceTxArgs, NodeClient,
@@ -813,6 +813,17 @@ where
 		let mut w_lock = self.wallet_inst.lock();
 		let w = w_lock.lc_provider()?.wallet_inst()?;
 		owner::contract_new(w, keychain_mask, args)
+	}
+
+	/// Summarise a contract slate, including its participants, signatures and net change.
+	pub fn contract_view(
+		&self,
+		keychain_mask: Option<&SecretKey>,
+		slate: &Slate,
+	) -> Result<ContractView, Error> {
+		let mut w_lock = self.wallet_inst.lock();
+		let w = w_lock.lc_provider()?.wallet_inst()?;
+		owner::contract_view(w, keychain_mask, slate)
 	}
 
 	/// Sign a contract, running setup first if it has not been done yet.

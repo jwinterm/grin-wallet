@@ -22,7 +22,7 @@ use crate::core::core::OutputFeatures;
 use crate::core::global;
 use crate::keychain::{Identifier, Keychain};
 use crate::libwallet::contract::types::{
-	ContractNewArgsAPI, ContractRevokeArgsAPI, ContractSetupArgsAPI,
+	ContractNewArgsAPI, ContractRevokeArgsAPI, ContractSetupArgsAPI, ContractView,
 };
 use crate::libwallet::{
 	mwixnet::MixnetReqCreationParams, AcctPathMapping, Amount, BuiltOutput, Error, InitTxArgs,
@@ -542,6 +542,12 @@ pub trait OwnerRpc {
 		slate: VersionedSlate,
 		args: ContractSetupArgsAPI,
 	) -> Result<VersionedSlate, Error>;
+
+	/**
+	   TODO: Full docs once API has stabilised
+	*/
+
+	fn contract_view(&self, token: Token, slate: VersionedSlate) -> Result<ContractView, Error>;
 
 	/**
 	   TODO: Full docs once API has stabilised
@@ -2185,6 +2191,10 @@ where
 			SlateVersion::V4 => in_version,
 		};
 		VersionedSlate::into_version(slate, version)
+	}
+
+	fn contract_view(&self, token: Token, slate: VersionedSlate) -> Result<ContractView, Error> {
+		Owner::contract_view(self, (&token.keychain_mask).as_ref(), &Slate::from(slate))
 	}
 
 	fn contract_revoke(

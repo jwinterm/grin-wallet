@@ -15,8 +15,10 @@
 use crate::core::core::FeeFields;
 use crate::core::core::{self, amount_to_hr_string};
 use crate::core::global;
+use crate::libwallet::contract::types::ContractView;
 use crate::libwallet::{
-	AcctPathMapping, Error, OutputCommitMapping, OutputStatus, TxLogEntry, ViewWallet, WalletInfo,
+	AcctPathMapping, Error, OutputCommitMapping, OutputStatus, Slate, TxLogEntry, ViewWallet,
+	WalletInfo,
 };
 use crate::util::ToHex;
 use grin_wallet_util::OnionV3Address;
@@ -633,4 +635,30 @@ pub fn payment_proof(tx: &TxLogEntry) -> Result<(), Error> {
 	println!();
 
 	Ok(())
+}
+
+/// Display a summary of a contract slate
+pub fn contract_view(slate: &Slate, view: &ContractView) {
+	println!("\n____ Contract ____\n");
+	let mut table = table!();
+
+	table.add_row(row![bFC->"Slate Id", bGC->slate.id]);
+	table.add_row(row![bFC->"State", bGC->slate.state]);
+	table.add_row(row![bFC->"Participants", bGC->view.num_participants]);
+	table.add_row(row![bFC->"Signatures", bGC->view.num_sigs]);
+	let suggested = match view.suggested_net_change {
+		Some(v) => amount_to_hr_string(v.unsigned_abs(), false),
+		None => String::from("None"),
+	};
+	table.add_row(row![bFC->"Suggested Net Change", bGC->suggested]);
+	let agreed = match view.agreed_net_change {
+		Some(v) => amount_to_hr_string(v.unsigned_abs(), false),
+		None => String::from("None"),
+	};
+	table.add_row(row![bFC->"Agreed Net Change", bGC->agreed]);
+	table.add_row(row![bFC->"Executed", bGC->view.is_executed]);
+
+	table.set_format(*prettytable::format::consts::FORMAT_NO_BORDER_LINE_SEPARATOR);
+	table.printstd();
+	println!();
 }

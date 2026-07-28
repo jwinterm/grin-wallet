@@ -1815,6 +1815,42 @@ where
 }
 
 #[derive(Clone)]
+pub struct ContractViewArgs {
+	/// Slatepack file to read the contract from
+	pub input_file: Option<String>,
+	/// Slatepack message to read the contract from
+	pub input_slatepack_message: Option<String>,
+}
+
+pub fn contract_view<L, C, K>(
+	owner_api: &mut Owner<L, C, K>,
+	keychain_mask: Option<&SecretKey>,
+	args: ContractViewArgs,
+) -> Result<(), Error>
+where
+	L: WalletLCProvider<'static, C, K>,
+	C: NodeClient + 'static,
+	K: keychain::Keychain + 'static,
+{
+	let (slate, _) = parse_slatepack(
+		owner_api,
+		keychain_mask,
+		args.input_file,
+		args.input_slatepack_message,
+	)?;
+
+	let wallet_inst = owner_api.wallet_inst.clone();
+	let config_path = owner_api.config_path();
+	controller::owner_single_use(wallet_inst, keychain_mask, config_path, |api, m| {
+		let view = api.contract_view(m, &slate)?;
+		display::contract_view(&slate, &view);
+		Ok(())
+	})?;
+
+	Ok(())
+}
+
+#[derive(Clone)]
 pub struct ContractRevokeArgs {
 	/// Id of a transaction we want to cancel
 	pub tx_id: u32,
