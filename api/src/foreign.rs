@@ -27,6 +27,7 @@ use crate::try_slatepack_sync_workflow;
 use crate::util::secp::key::SecretKey;
 use crate::util::Mutex;
 use ed25519_dalek::VerifyingKey as DalekPublicKey;
+use libwallet::SlatepackAddress;
 use std::sync::Arc;
 
 /// ForeignAPI Middleware Check callback
@@ -345,7 +346,7 @@ where
 		&self,
 		slate: &Slate,
 		dest_acct_name: Option<&str>,
-		r_addr: Option<String>,
+		r_addr: Option<SlatepackAddress>,
 	) -> Result<Slate, Error> {
 		let mut w_lock = self.wallet_inst.lock();
 		let tor_config = r_addr
