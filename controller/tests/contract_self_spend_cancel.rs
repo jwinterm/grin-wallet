@@ -97,11 +97,144 @@ fn contract_self_spend_cancel_impl(test_dir: &'static str) -> Result<(), libwall
 	Ok(())
 }
 
+/// Find the stored transaction a signed contract wrote
+fn find_stored_tx(test_dir: &str) -> std::path::PathBuf {
+	fn walk(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+		if let Ok(entries) = std::fs::read_dir(dir) {
+			for e in entries.filter_map(|e| e.ok()) {
+				let p = e.path();
+				if p.is_dir() {
+					walk(&p, out);
+				} else if p.extension().map(|x| x == "grintx").unwrap_or(false) {
+					out.push(p);
+				}
+			}
+		}
+	}
+	let mut found = vec![];
+	walk(std::path::Path::new(test_dir), &mut found);
+	assert_eq!(found.len(), 1, "expected one stored tx under {}", test_dir);
+	found.pop().unwrap()
+}
+
+/// save_step writes the signed transaction to a file after the wallet state batch has
+/// committed, so that write can fail with the tx log entry and the input locks already
+/// persisted. The documented way out is to cancel, which does not read the stored tx;
+/// this checks that holds by removing the file and cancelling.
+fn contract_self_spend_cancel_missing_stored_tx_impl(
+	test_dir: &'static str,
+) -> Result<(), libwallet::Error> {
+	let (wallets, _chain, stopper, _bh) =
+		create_wallets(vec![vec![("default", 4)]], test_dir).unwrap();
+	let send_wallet = wallets[0].0.clone();
+	let send_mask = wallets[0].1.as_ref();
+
+	let mut slate = Slate::blank(0, true);
+	wallet::controller::owner_single_use(
+		send_wallet.clone(),
+		send_mask,
+		PathBuf::from(test_dir),
+		|api, m| {
+			let args = &ContractNewArgsAPI {
+				setup_args: ContractSetupArgsAPI {
+					net_change: Some(0),
+					num_participants: 1,
+					..Default::default()
+				},
+				..Default::default()
+			};
+			slate = api.contract_new(m, args)?;
+			Ok(())
+		},
+	)?;
+
+	// Signing a self-spend completes the slate, so the transaction is stored
+	wallet::controller::owner_single_use(
+		send_wallet.clone(),
+		send_mask,
+		PathBuf::from(test_dir),
+		|api, m| {
+			let args = &ContractSetupArgsAPI {
+				..Default::default()
+			};
+			slate = api.contract_sign(m, &slate, args)?;
+			Ok(())
+		},
+	)?;
+	assert_eq!(slate.state, SlateState::Standard2);
+
+	// Signing locked our inputs, so the cancel below has something to release, and the
+	// entry records where the transaction was stored, as a standard send does
+	wallet::controller::owner_single_use(
+		send_wallet.clone(),
+		send_mask,
+		PathBuf::from(test_dir),
+		|api, m| {
+			let (_, info) = api.retrieve_summary_info(m, true, 1)?;
+			assert!(info.amount_locked > 0);
+			let (_, txs) = api.retrieve_txs(m, true, None, Some(slate.id), None)?;
+			assert_eq!(
+				txs.last().unwrap().stored_tx,
+				Some(format!("{}.grintx", slate.id))
+			);
+			Ok(())
+		},
+	)?;
+
+	// Stand in for the file write having failed. The transaction has not been posted:
+	// contract_sign returns before the caller broadcasts.
+	let stored = find_stored_tx(test_dir);
+	std::fs::remove_file(&stored).unwrap();
+
+	// Cancelling still releases the inputs
+	wallet::controller::owner_single_use(
+		send_wallet.clone(),
+		send_mask,
+		PathBuf::from(test_dir),
+		|api, m| {
+			api.cancel_tx(m, None, Some(slate.id))?;
+			Ok(())
+		},
+	)?;
+
+	wallet::controller::owner_single_use(
+		send_wallet.clone(),
+		send_mask,
+		PathBuf::from(test_dir),
+		|api, m| {
+			let query_args = libwallet::RetrieveTxQueryArgs {
+				exclude_cancelled: Some(false),
+				..Default::default()
+			};
+			let (_, txs) = api.retrieve_txs(m, true, None, None, Some(query_args))?;
+			let tx_log = txs.last().unwrap();
+			assert_eq!(tx_log.tx_type, TxLogEntryType::TxSelfSpendCancelled);
+			// The spendable balance is back to the mined total
+			let (_, info) = api.retrieve_summary_info(m, true, 1)?;
+			assert_eq!(info.amount_locked, 0);
+			Ok(())
+		},
+	)?;
+
+	stopper.store(false, Ordering::Relaxed);
+	thread::sleep(Duration::from_millis(200));
+	Ok(())
+}
+
 #[test]
 fn wallet_contract_self_spend_cancel() -> Result<(), libwallet::Error> {
 	let test_dir = "test_output/contract_self_spend_cancel";
 	setup(test_dir);
 	contract_self_spend_cancel_impl(test_dir)?;
+	clean_output_dir(test_dir);
+	Ok(())
+}
+
+#[test]
+fn wallet_contract_self_spend_cancel_missing_stored_tx() -> Result<(), libwallet::Error> {
+	let test_dir = "test_output/contract_self_spend_cancel_missing_stored_tx";
+	setup(test_dir);
+	contract_self_spend_cancel_missing_stored_tx_impl(test_dir)?;
 	clean_output_dir(test_dir);
 	Ok(())
 }

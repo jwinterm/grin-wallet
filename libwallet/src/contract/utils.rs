@@ -44,8 +44,7 @@ pub fn create_tx_log_entry(
 		}
 	};
 	let mut t = TxLogEntry::new(parent_key_id.clone(), log_type, log_id);
-	// stored_tx on the entry is left unset; contracts persist the tx separately via
-	// store_tx in save_step.
+	// stored_tx is set in save_step, once we have signed and the transaction is written.
 
 	t.tx_slate_id = Some(slate.id);
 	if net_change > 0 {
@@ -223,6 +222,10 @@ where
 	// Update TxLogEntry if we have signed the contract (we have data about the kernel)
 	if is_signed {
 		update_tx_log_entry(w, keychain_mask, &slate, &context, &mut tx_log_entry)?;
+		// Record where the transaction is stored, as internal::selection does for a
+		// standard send. store_tx below writes it under this name, and 'txs' reads the
+		// field to report whether the transaction data is held.
+		tx_log_entry.stored_tx = Some(format!("{}.grintx", slate.id));
 	}
 	// If we added outputs in this step, we have to create OutputData here because 'batch'
 	// takes the mutable ref and we can no longer call calc_commit_for_cache for output
@@ -308,6 +311,15 @@ where
 	// Store the signed transaction only after the wallet-state batch has committed (and
 	// the signing context is confirmed gone), so a DB failure can't leave the stored tx
 	// out of sync with wallet state. Matches the core convention (internal::selection).
+	//
+	// store_tx writes a file outside LMDB, so this cannot be part of the batch above and
+	// a window remains: the write can fail with the tx log entry and the input locks
+	// already committed. Making it atomic would mean holding stored transactions in the
+	// database, which is how every transaction in the wallet is kept, not just contracts.
+	// Until then the way out is to cancel the transaction, which releases the inputs
+	// without reading the stored tx. Nothing has been broadcast at this point: the error
+	// returns to the caller before it posts. Covered by
+	// wallet_contract_self_spend_cancel_missing_stored_tx.
 	if is_signed {
 		w.store_tx(&format!("{}", slate.id), slate.tx_or_err()?)?;
 	}
