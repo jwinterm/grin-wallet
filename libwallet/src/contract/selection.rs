@@ -67,11 +67,11 @@ pub fn compute(
 where
 {
 	let (inputs, fee) = select_inputs(setup_args, committed_fee, inputs)?;
-	let output_amounts = build_output_amount_list(
-		inputs.clone().iter().map(|out| out.value).sum::<u64>(),
-		fee.fee(),
-		setup_args,
-	)?;
+	let input_sum = inputs
+		.iter()
+		.try_fold(0u64, |sum, output| sum.checked_add(output.value))
+		.ok_or_else(|| Error::GenericError("selected input amounts overflow".to_string()))?;
+	let output_amounts = build_output_amount_list(input_sum, fee.fee(), setup_args)?;
 	Ok((inputs, output_amounts, fee))
 }
 
@@ -170,55 +170,61 @@ where
 		committed_fee.unwrap()
 	} else {
 		// We start with a fee of 1 output and a shared kernel which is minimum for both parties
-		my_fee_contribution(0, 1, 1, setup_args.num_participants).unwrap()
+		my_fee_contribution(0, 1, 1, setup_args.num_participants)?
 		// FeeFields::zero()
 	};
 
 	// NOTE: This always takes at least one input if it is available. We take the inputs we must take and then we take
 	// inputs until we fulfill Σmy_inputs >= Σmy_outputs + my_fee_cost
-	let selected_inputs = inputs
-		.iter()
-		.take_while(|out| {
-			// Take the commitment if it is listed as one of those we MUST take
-			let must_take =
-				out.commit.is_some() && must_use_list.contains(&&out.commit.as_ref().unwrap()[..]);
-			// Compute the fee without this input
-			let fee_without =
-				my_fee_contribution(n_inputs, my_num_outputs, 1, setup_args.num_participants)
-					.unwrap();
-			// Compute the total fee cost if we took this input
-			let mut fee_with =
-				my_fee_contribution(n_inputs + 1, my_num_outputs, 1, setup_args.num_participants)
-					.unwrap();
-			// If the current fee is lower than the committed fee (my_fee) then set it to committed fee
-			if my_fee.fee() > fee_with.fee() {
-				fee_with = my_fee;
+	let mut selected_inputs = Vec::new();
+	for out in inputs.iter() {
+		// Take the commitment if it is listed as one of those we MUST take
+		let must_take =
+			out.commit.is_some() && must_use_list.contains(&&out.commit.as_ref().unwrap()[..]);
+		// Compute the fee without this input
+		let fee_without =
+			my_fee_contribution(n_inputs, my_num_outputs, 1, setup_args.num_participants)?;
+		// Compute the total fee cost if we took this input
+		let mut fee_with =
+			my_fee_contribution(n_inputs + 1, my_num_outputs, 1, setup_args.num_participants)?;
+		// If the current fee is lower than the committed fee (my_fee) then set it to committed fee
+		if my_fee.fee() > fee_with.fee() {
+			fee_with = my_fee;
+		}
+		// If we don't have a "must take" input, have contributed an input and have enough to balance the equation, we can stop
+		let needed_without = rhs
+			.checked_add(fee_without.fee())
+			.ok_or_else(|| Error::GenericError("required amount plus fee overflow".to_string()))?;
+		let can_finish = lhs >= needed_without && n_inputs > 0 && !must_take;
+		if can_finish {
+			break;
+		}
+		// Take the commitment if `lhs < rhs+fees_with` (or if we have not yet taken an input - payjoins)
+		let needed_with = rhs
+			.checked_add(fee_with.fee())
+			.ok_or_else(|| Error::GenericError("required amount plus fee overflow".to_string()))?;
+		let should_take = lhs < needed_with || n_inputs == 0;
+		let res = must_take || should_take;
+		if res {
+			lhs = lhs.checked_add(out.value).ok_or_else(|| {
+				Error::GenericError("selected input amounts overflow".to_string())
+			})?;
+			n_inputs += 1;
+			// Update the fee cost if we decided to take the input
+			my_fee = fee_with;
+			if must_take {
+				must_use_list_cnt += 1;
 			}
-			// If we don't have a "must take" input, have contributed an input and have enough to balance the equation, we can stop
-			let can_finish = lhs >= (rhs + fee_without.fee()) && n_inputs > 0 && !must_take;
-			if can_finish {
-				return false;
-			}
-			// Take the commitment if `lhs < rhs+fees_with` (or if we have not yet taken an input - payjoins)
-			let should_take = lhs < (rhs + fee_with.fee()) || n_inputs == 0;
-			let res = must_take || should_take;
-			if res {
-				lhs += out.value;
-				n_inputs += 1;
-				// Update the fee cost if we decided to take the input
-				my_fee = fee_with;
-				if must_take {
-					must_use_list_cnt += 1;
-				}
-			}
-			debug!(
-				"contract::selection::select_inputs => out_value:{}, new my_inputs_sum:{}",
-				out.value, lhs
-			);
-			res
-		})
-		.cloned()
-		.collect::<Vec<OutputData>>();
+			selected_inputs.push(out.clone());
+		}
+		debug!(
+			"contract::selection::select_inputs => out_value:{}, new my_inputs_sum:{}",
+			out.value, lhs
+		);
+		if !res {
+			break;
+		}
+	}
 
 	// Return an error if the fee computed is larger than the committed fee
 	if committed_fee.is_some() && my_fee.fee() > committed_fee.unwrap().fee() {
@@ -232,14 +238,20 @@ where
 
 	// Check that the inputs we picked are enough to cover all our output amounts and fees
 	// asserts that Σmy_inputs >= Σmy_outputs + my_fee_cost
-	if lhs < rhs + my_fee.fee() {
-		let total = inputs.iter().fold(0, |acc, x| acc + x.value);
-		debug!("Not enough funds. Total funds eligible to spend: {}, needed: {}. Fee cost for this transaction: {}", total, rhs+my_fee.fee(), my_fee.fee());
+	let needed = rhs
+		.checked_add(my_fee.fee())
+		.ok_or_else(|| Error::GenericError("required amount plus fee overflow".to_string()))?;
+	if lhs < needed {
+		let total = inputs
+			.iter()
+			.try_fold(0u64, |sum, output| sum.checked_add(output.value))
+			.ok_or_else(|| Error::GenericError("available input amounts overflow".to_string()))?;
+		debug!("Not enough funds. Total funds eligible to spend: {}, needed: {}. Fee cost for this transaction: {}", total, needed, my_fee.fee());
 		return Err(Error::NotEnoughFunds {
 			available: total,
 			available_disp: amount_to_hr_string(total, false),
-			needed: rhs + my_fee.fee(),
-			needed_disp: amount_to_hr_string(rhs + my_fee.fee(), false),
+			needed,
+			needed_disp: amount_to_hr_string(needed, false),
 		}
 		.into());
 		// return Err(ErrorKind::GenericError(msg.into()).into());
@@ -394,6 +406,30 @@ mod tests {
 			..Default::default()
 		};
 		assert!(build_output_amount_list(0, my_fee.fee(), &setup_args).is_err());
+	}
+
+	#[test]
+	fn amount_overflow() {
+		let setup_args = ContractSetupArgsAPI {
+			net_change: Some(-1),
+			selection_args: OutputSelectionArgs {
+				make_outputs: Some(vec![u64::MAX - 1]),
+				..Default::default()
+			},
+			..Default::default()
+		};
+		assert!(compute(&setup_args, None, &mut vec![]).is_err());
+
+		let setup_args = ContractSetupArgsAPI {
+			net_change: Some(-1),
+			selection_args: OutputSelectionArgs {
+				use_inputs: Some("abc0,abc1".to_string()),
+				..Default::default()
+			},
+			..Default::default()
+		};
+		let mut inputs = _create_output_data_for(vec![u64::MAX, 1]);
+		assert!(compute(&setup_args, None, &mut inputs).is_err());
 	}
 
 	#[test]

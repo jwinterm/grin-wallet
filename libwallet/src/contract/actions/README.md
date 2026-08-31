@@ -65,6 +65,7 @@ Separating side effects until the 'save_step' part would make these functions mu
  - Separate side effects out from the computation, as described above.
  - Decide whether `contract_accounts_switch.rs` is a legitimate scenario, or whether
    signing under a different account than setup should error.
+ - Decide whether `target_slate_version` should control Slatepack output or be removed.
 
 #### Tests
 
