@@ -79,7 +79,7 @@ where
 	// Cancel the original tx only if it is still in a cancellable state. On a resumed revoke
 	// it is already a *Cancelled type (and the inputs are Unspent), so we skip straight to
 	// re-spending them.
-	let revoked = w.get_tx_log_entry(parent_key_id.clone(), tx_id)?;
+	let revoked = w.get_tx_log_entry_by_id(parent_key_id.clone(), tx_id)?;
 	let revoked_slate_id = revoked.as_ref().and_then(|e| e.tx_slate_id);
 	let needs_cancel = match revoked.as_ref() {
 		Some(e) => matches!(

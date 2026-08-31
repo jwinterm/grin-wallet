@@ -376,7 +376,15 @@ pub fn run_doctest_foreign(
 
 	util::init_test_logger();
 	let _ = fs::remove_dir_all(test_dir);
-	global::set_local_chain_type(ChainTypes::AutomatedTesting);
+	global::set_global_chain_type(ChainTypes::AutomatedTesting);
+
+	let _ = fs::create_dir_all(test_dir);
+	let config = initial_setup_wallet(
+		&ChainTypes::AutomatedTesting,
+		Some(PathBuf::from(test_dir)),
+		false,
+	)
+	.unwrap();
 
 	let _ = fs::create_dir_all(test_dir);
 	let config = initial_setup_wallet(

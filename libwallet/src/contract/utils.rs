@@ -214,7 +214,7 @@ where
 			// We create a new entry with log_id=0 and but replace it with the real id before committing
 			create_tx_log_entry(slate, context.get_net_change()?, parent_key_id.clone(), 0)?
 		} else {
-			w.get_tx_log_entry(parent_key_id.clone(), context.log_id.unwrap())?
+			w.get_tx_log_entry_by_id(parent_key_id.clone(), context.log_id.unwrap())?
 				.unwrap()
 		}
 	};

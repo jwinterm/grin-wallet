@@ -17,6 +17,7 @@ use std::fs;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::Path;
+use uuid::Uuid;
 
 use crate::blake2::blake2b::{Blake2b, Blake2bResult};
 
@@ -324,9 +325,8 @@ where
 		Ok(items.into_iter())
 	}
 
-	/// Get an (Optional) tx log entry by parent key id and log id. Keyed to match
-	/// save_tx_log_entry (parent_id + numeric log id), unlike the unused uuid form.
-	pub fn get_tx_log_entry(
+	/// Get an (Optional) tx log entry by parent key id and log id.
+	pub fn get_tx_log_entry_by_id(
 		&self,
 		parent_id: Identifier,
 		log_id: u32,
@@ -334,6 +334,13 @@ where
 		let tx_log_key = to_key_u64(parent_id.to_bytes(), log_id as u64);
 		self.db
 			.get_ser(Some(TX_LOG_ENTRY_PREFIX), &tx_log_key, None)
+			.map_err(|e| e.into())
+	}
+
+	/// Get an (Optional) tx log entry by uuid.
+	pub fn get_tx_log_entry(&self, u: &Uuid) -> Result<Option<TxLogEntry>, Error> {
+		self.db
+			.get_ser(Some(TX_LOG_ENTRY_PREFIX), u.as_bytes(), None)
 			.map_err(|e| e.into())
 	}
 
@@ -498,13 +505,22 @@ where
 		self.next_child_for(&parent_key_id, keychain_mask)
 	}
 
-	/// Last verified height of outputs directly descending from the given parent key.
+	/// Last verified height of outputs directly descending from the current parent key.
 	pub fn last_confirmed_height(&mut self) -> Result<u64, Error> {
+		let parent_key_id = self.parent_key_id.clone();
+		self.last_confirmed_height_for_parent(&parent_key_id)
+	}
+
+	/// Last verified height of outputs directly descending from the given parent key.
+	pub(crate) fn last_confirmed_height_for_parent(
+		&mut self,
+		parent_key_id: &Identifier,
+	) -> Result<u64, Error> {
 		let batch = self.db.batch()?;
 		let last_confirmed_height = batch
 			.get_ser(
 				Some(CONFIRMED_HEIGHT_PREFIX),
-				&self.parent_key_id.to_bytes(),
+				&parent_key_id.to_bytes(),
 				None,
 			)?
 			.unwrap_or_else(|| 0);
