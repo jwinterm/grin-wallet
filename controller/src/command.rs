@@ -1818,8 +1818,6 @@ impl ContractSetupArgs {
 	fn to_api_args(&self) -> Result<ContractSetupArgsAPI, Error> {
 		let net_change = self.get_net_change()?;
 		Ok(ContractSetupArgsAPI {
-			// TODO: num_participants is derived here. It should be an Option and read from the slate.
-			// Need to check no attack are possible regarding kernel fee contribution.
 			net_change: net_change,
 			add_outputs: self.add_outputs,
 			selection_args: OutputSelectionArgs {

@@ -84,7 +84,7 @@ impl Default for OutputSelectionArgs {
 pub enum ProofType {
 	/// Legacy (0x00)
 	Legacy,
-	/// Invoice (0x01, Default)
+	/// Invoice (0x01)
 	Invoice,
 	/// Sender Nonce (0x02)
 	SenderNonce,
@@ -95,7 +95,7 @@ pub enum ProofType {
 pub struct ProofArgs {
 	/// If net change is positive during this step, whether to suppress the creation of payment proof
 	pub suppress_proof: bool,
-	/// Type of proof (Default 'Invoice')
+	/// Requested proof type. Contract proofs currently always use the invoice type.
 	pub proof_type: ProofType,
 	/// Sender address (required at some stage, may not necessarily be in slate so can be provided explicitly)
 	#[serde(with = "dalek_ser::option_dalek_pubkey_serde")]

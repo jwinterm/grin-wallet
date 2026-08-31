@@ -462,7 +462,7 @@ where
 
 	// Below is a foreign wrapper around owner calls to 'new' and 'sign' which are only executed
 	// if this is a receiving contract. This preserves the ability to receive on a foreign interface.
-	/// TODO
+	/// Start a receiving contract through the foreign API.
 	pub fn contract_new(
 		&self,
 		keychain_mask: Option<&SecretKey>,
@@ -473,7 +473,7 @@ where
 		foreign::contract_new(w, keychain_mask, args)
 	}
 
-	/// TODO
+	/// Sign the receiving side of a contract through the foreign API.
 	pub fn contract_sign(
 		&self,
 		keychain_mask: Option<&SecretKey>,
@@ -485,7 +485,7 @@ where
 		foreign::contract_sign(w, keychain_mask, args, slate)
 	}
 
-	/// TODO
+	/// Verify an invoice payment proof against the chain.
 	pub fn verify_payment_proof_invoice(
 		&self,
 		recipient_address: &DalekPublicKey,

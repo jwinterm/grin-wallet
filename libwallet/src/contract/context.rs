@@ -127,7 +127,7 @@ where
 	// Context.amount is not used in contracts, but we set it anyway.
 	context.amount = slate.amount;
 	// Store the full setup args on the context; later steps (add_outputs) read the
-	// SelectionArgs and ttl from here.
+	// selection arguments from here.
 	context.setup_args = Some(setup_args.clone());
 	debug!(
 		"Setting Context.net_change as: {}",

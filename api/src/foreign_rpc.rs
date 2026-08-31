@@ -386,14 +386,6 @@ pub fn run_doctest_foreign(
 	)
 	.unwrap();
 
-	let _ = fs::create_dir_all(test_dir);
-	let config = initial_setup_wallet(
-		&ChainTypes::AutomatedTesting,
-		Some(PathBuf::from(test_dir)),
-		false,
-	)
-	.unwrap();
-
 	let mut wallet_proxy: WalletProxy<
 		DefaultLCProvider<LocalWalletClient, ExtKeychain>,
 		LocalWalletClient,
