@@ -85,8 +85,6 @@ pub use types::{
 	ViewWallet, WalletInfo, WalletInitStatus, WalletInst, WalletLCProvider,
 };
 
-pub use contract::can_finalize;
-
 /// Helper for taking a lock on the wallet instance
 #[macro_export]
 macro_rules! wallet_lock {
