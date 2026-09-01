@@ -213,6 +213,7 @@ fn contract_early_proofs_rsr_test_impl(test_dir: &'static str) -> Result<(), lib
 	)?;
 
 	let invoice_proof = invoice_proof.unwrap();
+	assert_eq!(invoice_proof.amount, 5_000_000_000);
 	let invoice_proof_json = serde_json::to_string(&invoice_proof).unwrap();
 
 	// Should have all proof fields filled out

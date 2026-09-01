@@ -56,7 +56,6 @@ Separating side effects until the 'save_step' part would make these functions mu
  - Distinguish the transfer amount from the fee-adjusted balance change in `view`.
  - Raise the replacement fee when `revoke` races a transaction already in the mempool.
  - Merge invoice-proof retrieval with the existing payment-proof API.
- - Confirm that invoice-proof retrieval excludes the transaction fee from the amount.
  - Add a Grin node API for kernel lookup by MMR index, then use the witness index instead
    of searching by commitment.
  - Align the proof memo encoding with the early payment proofs proposal.

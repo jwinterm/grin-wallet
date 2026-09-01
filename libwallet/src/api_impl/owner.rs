@@ -569,12 +569,8 @@ where
 	}
 	// Pull out all needed fields, returning an error if they're not present
 	let tx = txs.1[0].clone();
-	let amount = if tx.amount_credited >= tx.amount_debited {
-		tx.amount_credited - tx.amount_debited
-	} else {
-		// TODO: Invoice proof not expecting fee included here
-		tx.amount_debited - tx.amount_credited
-	};
+	// Contract tx logs store the agreed net change separately from the fee.
+	let amount = tx.amount_credited.abs_diff(tx.amount_debited);
 
 	let (mut proof, sender_part_sig) = match tx.payment_proof {
 		Some(p) => {
