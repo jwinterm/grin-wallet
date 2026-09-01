@@ -466,13 +466,7 @@ where
 
 	/// Return the current child index.
 	pub fn current_child_index(&mut self, parent_key_id: &Identifier) -> Result<u32, Error> {
-		let index = {
-			let batch = self.db.batch()?;
-			batch
-				.get_ser(Some(DERIV_PREFIX), &parent_key_id.to_bytes(), None)?
-				.unwrap_or_else(|| 0)
-		};
-		Ok(index)
+		self.batch_no_mask()?.current_child_index(parent_key_id)
 	}
 
 	/// Next child ID for the given parent key, when we want to create a new output.
@@ -483,17 +477,12 @@ where
 		parent_key_id: &Identifier,
 		keychain_mask: Option<&SecretKey>,
 	) -> Result<Identifier, Error> {
-		let mut deriv_idx = {
-			let batch = self.db.batch()?;
-			batch
-				.get_ser(Some(DERIV_PREFIX), &parent_key_id.to_bytes(), None)?
-				.unwrap_or_else(|| 0)
-		};
+		let mut batch = self.batch(keychain_mask)?;
+		let mut deriv_idx = batch.current_child_index(parent_key_id)?;
 		let mut return_path = parent_key_id.to_path();
 		return_path.depth += 1;
 		return_path.path[return_path.depth as usize - 1] = ChildNumber::from(deriv_idx);
 		deriv_idx += 1;
-		let mut batch = self.batch(keychain_mask)?;
 		batch.save_child_index(parent_key_id, deriv_idx)?;
 		batch.commit()?;
 		Ok(Identifier::from_path(&return_path))
@@ -622,6 +611,14 @@ where
 		};
 		self.db.delete(Some(OUTPUT_PREFIX), &key)?;
 		Ok(())
+	}
+
+	/// Return the current child index.
+	pub fn current_child_index(&self, parent_id: &Identifier) -> Result<u32, Error> {
+		Ok(self
+			.db
+			.get_ser(Some(DERIV_PREFIX), &parent_id.to_bytes(), None)?
+			.unwrap_or_else(|| 0))
 	}
 
 	/// Save last stored child index of a given parent.
@@ -784,4 +781,41 @@ fn to_key_u64<K: AsRef<[u8]>>(k: K, val: u64) -> Vec<u8> {
 	let mut res = k.as_ref().to_vec();
 	res.write_u64::<BigEndian>(val).unwrap();
 	res
+}
+
+#[cfg(test)]
+mod test {
+	use super::*;
+
+	#[test]
+	fn child_index_in_batch() -> Result<(), Error> {
+		grin_core::global::set_local_chain_type(grin_core::global::ChainTypes::AutomatedTesting);
+		let data_dir = std::env::temp_dir().join(format!("grin_wallet_{}", Uuid::new_v4()));
+		let db_dir = data_dir.join(DB_DIR);
+		fs::create_dir_all(&db_dir)?;
+		let store = Store::new(
+			db_dir.to_str().unwrap(),
+			None,
+			Some(DB_DIR),
+			DB_PREFIXES.to_vec(),
+			None,
+			None,
+		)?;
+		let parent = ExtKeychain::derive_key_id(2, 0, 0, 0, 0);
+
+		{
+			let mut batch = WalletBatch::<ExtKeychain> {
+				db: store.batch()?,
+				keychain: None,
+			};
+			assert_eq!(batch.current_child_index(&parent)?, 0);
+			batch.save_child_index(&parent, 1)?;
+			assert_eq!(batch.current_child_index(&parent)?, 1);
+			batch.commit()?;
+		}
+
+		drop(store);
+		fs::remove_dir_all(data_dir)?;
+		Ok(())
+	}
 }

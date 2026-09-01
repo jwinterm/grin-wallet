@@ -36,8 +36,6 @@ Separating side effects until the 'save_step' part would make these functions mu
 
 #### TODOs
 
- - `next_child_for` reads the derivation index and writes it back in two batches, so
-   concurrent steps can be handed the same child key. `next_child` has the same shape.
  - Honour `min_input_confirmation`; contract input selection currently uses one confirmation.
  - Decide whether `--use-inputs` or `--make-outputs` should imply early locking; currently
    only `--add-outputs` locks during `new`.
