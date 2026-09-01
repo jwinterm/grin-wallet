@@ -797,6 +797,31 @@ pub struct StoredProofInfo {
 	pub sender_part_sig: Option<Signature>,
 }
 
+impl StoredProofInfo {
+	pub(crate) fn new(
+		receiver_address: DalekPublicKey,
+		receiver_signature: Option<DalekSignature>,
+		sender_address: DalekPublicKey,
+		sender_address_path: u32,
+		sender_signature: Option<DalekSignature>,
+	) -> Self {
+		Self {
+			receiver_address,
+			receiver_signature,
+			sender_address_path,
+			sender_address,
+			sender_signature,
+			proof_type: None,
+			receiver_public_nonce: None,
+			receiver_public_excess: None,
+			timestamp: None,
+			memo: None,
+			promise_signature: None,
+			sender_part_sig: None,
+		}
+	}
+}
+
 impl ser::Writeable for StoredProofInfo {
 	fn write<W: ser::Writer>(&self, writer: &mut W) -> Result<(), ser::Error> {
 		writer.write_bytes(&serde_json::to_vec(self).map_err(|_| ser::Error::CorruptedData)?)

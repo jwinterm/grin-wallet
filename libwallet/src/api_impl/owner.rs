@@ -36,7 +36,7 @@ use crate::contract::types::{
 use crate::grin_keychain::{BlindingFactor, Identifier, Keychain, SwitchCommitmentType};
 
 use crate::internal::{keys, scan, selection, tx, updater};
-use crate::slate::{PaymentInfo, Slate, SlateState};
+use crate::slate::{PaymentInfo, PaymentProofType, Slate, SlateState};
 use crate::types::{AcctPathMapping, NodeClient, TxLogEntry, WalletInfo};
 use crate::{
 	address, contract,
@@ -46,7 +46,6 @@ use crate::{
 	SlatepackAddress, Slatepacker, SlatepackerArgs, TxLogEntryType, ViewWallet, WalletBackend,
 	WalletInitStatus, WalletInst, WalletLCProvider,
 };
-use chrono::prelude::DateTime;
 use ed25519_dalek::SigningKey as DalekSecretKey;
 use ed25519_dalek::Verifier;
 use ed25519_dalek::VerifyingKey as DalekPublicKey;
@@ -602,7 +601,9 @@ where
 
 			(
 				InvoiceProof {
-					proof_type: if let Some(t) = p.proof_type { t } else { 1u8 },
+					proof_type: PaymentProofType::try_from(
+						p.proof_type.unwrap_or(PaymentProofType::Invoice.as_u8()),
+					)?,
 					amount,
 					receiver_public_nonce: p.receiver_public_nonce.unwrap(),
 					receiver_public_excess: p.receiver_public_excess.unwrap(),
@@ -765,10 +766,11 @@ where
 		let sender_address = OnionV3Address::from_private(&sec_addr_key.0)?;
 
 		slate.payment_proof = Some(PaymentInfo {
+			proof_type: PaymentProofType::Legacy,
 			sender_address: Some(sender_address.to_ed25519()?),
 			receiver_address: a.pub_key,
 			promise_signature: None,
-			timestamp: DateTime::from_timestamp(0, 0).unwrap(),
+			timestamp: None,
 			memo: None,
 		});
 

@@ -87,6 +87,9 @@ where
 	// If we're sending and there's payment proof info in the slate added by recipient, store as well
 	if let Some(ref p) = slate.payment_proof {
 		if tx_log_entry.amount_debited > 0 {
+			let timestamp = p
+				.timestamp
+				.ok_or_else(|| Error::PaymentProof("Missing proof timestamp".to_string()))?;
 			// note we only use a single path for now
 			let sender_address_path = 0u32;
 			let sender_key = address::address_from_derivation_path(
@@ -116,12 +119,12 @@ where
 				sender_signature: None,
 				// Filled as separate steps for now; could be merged into a general case
 				// once we know which nonces here belong to the recipient.
-				proof_type: Some(1u8),
+				proof_type: Some(p.proof_type.as_u8()),
 				receiver_public_nonce: Some(slate.participant_data[recipient_index].public_nonce),
 				receiver_public_excess: Some(
 					slate.participant_data[recipient_index].public_blind_excess,
 				),
-				timestamp: Some(p.timestamp),
+				timestamp: Some(timestamp),
 				memo: p.memo.clone(),
 				promise_signature: p.promise_signature,
 				sender_part_sig: slate.participant_data[sender_index].part_sig,

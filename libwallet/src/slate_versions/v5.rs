@@ -24,11 +24,10 @@
 //! * `saddr`, i.e. `sender_address` in main Slate becomes optional
 //! * `rsig` is renamed to `psig`, corresponding to rename of `receiver_signature` to `promise_signature` in main Slate
 //!
-//! * `ts` added (`timestamp` in main slate). Serialized as i64 representing epoch time in seconds
+//! * `ptype` identifies the payment proof type
+//! * `ts` adds an optional timestamp, serialized as seconds since the epoch
 //! * `memo` added as optional MemoV5 Struct, which contains:
 //!   * `memo_type`: u8
-//!      * 0x00 = payment details directly embedded
-//!      * 0x01 = Blake2b hash of an arbitrary invoice document
 //!   * `memo`: [u8;32] the memo data itself
 
 use crate::grin_core::core::FeeFields;
@@ -39,6 +38,7 @@ use crate::grin_util::secp;
 use crate::grin_util::secp::key::PublicKey;
 use crate::grin_util::secp::pedersen::{Commitment, RangeProof};
 use crate::grin_util::secp::Signature;
+use crate::slate::PaymentProofType;
 use crate::{slate_versions::ser, CbData};
 use chrono::prelude::{DateTime, Utc};
 use ed25519_dalek::Signature as DalekSignature;
@@ -198,9 +198,7 @@ fn default_part_sig_none() -> Option<Signature> {
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct PaymentMemoV5 {
-	// The type of memo
-	// 0x00 is directly embedded additional payment details
-	// 0x01 represents the blake2b hash of an arbitrary invoice document
+	// Uses the values defined by PaymentMemo
 	pub memo_type: u8,
 	// memo data itself
 	pub memo: [u8; 32],
@@ -209,12 +207,17 @@ pub struct PaymentMemoV5 {
 #[serde_as]
 #[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
 pub struct PaymentInfoV5 {
-	#[serde(with = "ser::dalek_pubkey_serde")]
-	pub saddr: DalekPublicKey,
+	#[serde(with = "crate::slate::payment_proof_type_serde")]
+	pub ptype: PaymentProofType,
+	#[serde(default)]
+	#[serde(with = "ser::option_dalek_pubkey_serde")]
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub saddr: Option<DalekPublicKey>,
 	#[serde(with = "ser::dalek_pubkey_serde")]
 	pub raddr: DalekPublicKey,
-	#[serde_as(as = "TimestampSeconds<i64>")]
-	pub ts: DateTime<Utc>,
+	#[serde_as(as = "Option<TimestampSeconds<i64>>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub ts: Option<DateTime<Utc>>,
 	#[serde(default = "default_promise_signature_none")]
 	#[serde(with = "ser::option_dalek_sig_serde")]
 	#[serde(skip_serializing_if = "Option::is_none")]

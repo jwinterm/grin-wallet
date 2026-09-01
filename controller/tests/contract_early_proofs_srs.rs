@@ -27,7 +27,7 @@ use grin_wallet_libwallet as libwallet;
 use impls::test_framework::{self};
 use libwallet::contract::my_fee_contribution;
 use libwallet::contract::types::{ContractNewArgsAPI, ContractSetupArgsAPI};
-use libwallet::{Slate, SlateState, TxLogEntryType};
+use libwallet::{Slate, SlateState, Slatepacker, SlatepackerArgs, TxLogEntryType};
 use std::sync::atomic::Ordering;
 use std::thread;
 use std::time::Duration;
@@ -36,6 +36,17 @@ use std::time::Duration;
 mod common;
 use common::{clean_output_dir, create_wallets, setup};
 use std::path::PathBuf;
+
+fn roundtrip_slate(slate: &Slate, version: u16) -> Result<Slate, libwallet::Error> {
+	let packer = Slatepacker::new(SlatepackerArgs {
+		sender: None,
+		recipients: vec![],
+		dec_key: None,
+	});
+	let slate = packer.get_slate(&packer.create_slatepack(slate)?)?;
+	assert_eq!(slate.version_info.version, version);
+	Ok(slate)
+}
 
 /// Development + Tests of early payment proof functionality
 fn contract_early_proofs_srs_test_impl(test_dir: &'static str) -> Result<(), libwallet::Error> {
@@ -69,6 +80,7 @@ fn contract_early_proofs_srs_test_impl(test_dir: &'static str) -> Result<(), lib
 		},
 	)?;
 	assert_eq!(slate.state, SlateState::Standard1);
+	slate = roundtrip_slate(&slate, 4)?;
 
 	let mut recipient_address = None;
 	wallet::controller::owner_single_use(
@@ -90,6 +102,7 @@ fn contract_early_proofs_srs_test_impl(test_dir: &'static str) -> Result<(), lib
 		},
 	)?;
 	assert_eq!(slate.state, SlateState::Standard2);
+	slate = roundtrip_slate(&slate, 5)?;
 
 	// Send wallet finalizes and posts
 	//let mut sender_part_sig = None;
@@ -103,7 +116,7 @@ fn contract_early_proofs_srs_test_impl(test_dir: &'static str) -> Result<(), lib
 			};
 			let mut tampered = slate.clone();
 			let proof = tampered.payment_proof.as_mut().unwrap();
-			proof.timestamp += Duration::from_secs(1);
+			*proof.timestamp.as_mut().unwrap() += Duration::from_secs(1);
 			assert!(api.contract_sign(m, &tampered, args).is_err());
 
 			slate = api.contract_sign(m, &slate, args)?;
@@ -111,6 +124,7 @@ fn contract_early_proofs_srs_test_impl(test_dir: &'static str) -> Result<(), lib
 		},
 	)?;
 	assert_eq!(slate.state, SlateState::Standard3);
+	slate = roundtrip_slate(&slate, 5)?;
 
 	wallet::controller::owner_single_use(
 		send_wallet.clone(),

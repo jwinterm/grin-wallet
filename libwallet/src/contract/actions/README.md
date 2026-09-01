@@ -57,13 +57,14 @@ Separating side effects until the 'save_step' part would make these functions mu
  - Raise the replacement fee when `revoke` races a transaction already in the mempool.
  - Merge invoice-proof retrieval with the existing payment-proof API.
  - Confirm that invoice-proof retrieval excludes the transaction fee from the amount.
- - Move payment-proof creation and verification onto `Slate` so it is versioned with the
-   slate format.
- - Bind and validate the contract proof type in the serialized proof.
+ - Add a Grin node API for kernel lookup by MMR index, then use the witness index instead
+   of searching by commitment.
+ - Align the proof memo encoding with the early payment proofs proposal.
+ - Implement sender-nonce proofs for the RSR flow.
+ - Move payment-proof creation and verification onto `Slate` so it can also be used
+   outside contracts and is versioned with the slate format.
  - Keep V5 when decoding Slatepacks through Owner RPC.
  - Preserve kernel features and their arguments across V4 and V5; see #793.
- - Preserve missing proof sender addresses and timestamps instead of replacing them with
-   zero values.
  - Choose the sender derivation path explicitly and keep encrypted outgoing files
    identifiable locally.
  - Decode the sender and slate from an incoming Slatepack in one pass.

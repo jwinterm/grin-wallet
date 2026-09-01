@@ -19,7 +19,7 @@ use crate::grin_core::libtx::build;
 use crate::grin_core::libtx::proof::ProofBuilder;
 use crate::grin_keychain::Keychain;
 use crate::grin_util::secp::key::{PublicKey, SecretKey};
-use crate::slate::{Slate, SlateState};
+use crate::slate::{PaymentProofType, Slate, SlateState};
 use crate::types::{Context, NodeClient};
 use crate::util::OnionV3Address;
 use crate::Error;
@@ -73,6 +73,9 @@ where
 		Some(proof) => proof,
 		None => return Ok(()),
 	};
+	payment_proof
+		.proof_type
+		.validate(PaymentProofType::Invoice)?;
 	if slate.participant_data.len() != 2 {
 		return Err(Error::GenericError(format!(
 			"Expected 2 participants for an invoice promise, found {}",

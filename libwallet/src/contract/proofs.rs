@@ -25,9 +25,10 @@ use crate::grin_core::ser::{Readable, Reader, Writeable, Writer};
 use crate::grin_keychain::Keychain;
 use crate::grin_util::secp::key::{PublicKey, SecretKey};
 use crate::grin_util::secp::pedersen::Commitment;
+use crate::grin_util::secp::Secp256k1;
 use crate::grin_util::secp::Signature;
 use crate::grin_util::static_secp_instance;
-use crate::slate::{PaymentInfo, PaymentMemo, Slate};
+use crate::slate::{PaymentInfo, PaymentMemo, PaymentProofType, Slate};
 use crate::slate_versions::ser as dalek_ser;
 use crate::types::{Context, NodeClient};
 use crate::{address, Error};
@@ -46,6 +47,32 @@ pub(super) fn check_proof_type(proof_type: &ProofType) -> Result<(), Error> {
 			"Only invoice contract proofs are supported".to_string(),
 		)),
 	}
+}
+
+fn verify_receiver_sig(
+	secp: &Secp256k1,
+	sig: &Signature,
+	receiver_nonce: &PublicKey,
+	pub_nonce_sum: &PublicKey,
+	receiver_excess: &PublicKey,
+	pub_blind_sum: &PublicKey,
+	msg: &Message,
+) -> Result<(), Error> {
+	let receiver_nonce = receiver_nonce.serialize_vec(secp, true);
+	if sig[0..32] != receiver_nonce[1..33] {
+		return Err(Error::PaymentProofValidation(
+			"Receiver nonce does not match the promise".into(),
+		));
+	}
+	aggsig::verify_partial_sig(
+		secp,
+		sig,
+		pub_nonce_sum,
+		receiver_excess,
+		Some(pub_blind_sum),
+		msg,
+	)?;
+	Ok(())
 }
 
 /// All elements required to validate a proof within a single struct
@@ -72,7 +99,8 @@ pub struct ProofWitness {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct InvoiceProof {
 	/// Proof type, 0x00 legacy (though this will use StoredProofInfo above, 1 invoice, 2 Sender nonce)
-	pub proof_type: u8,
+	#[serde(with = "crate::slate::payment_proof_type_serde")]
+	pub proof_type: PaymentProofType,
 	/// amount
 	#[serde(with = "secp_ser::string_or_u64")]
 	pub amount: u64,
@@ -103,7 +131,7 @@ struct InvoiceProofBin(InvoiceProof);
 
 impl Writeable for InvoiceProofBin {
 	fn write<W: Writer>(&self, writer: &mut W) -> Result<(), grin_ser::Error> {
-		writer.write_u8(1)?;
+		writer.write_u8(self.0.proof_type.as_u8())?;
 
 		// Amount field is 7 bytes, throw error if value is greater
 		let mut amount_bytes = [0; 8];
@@ -154,7 +182,8 @@ impl Readable for InvoiceProofBin {
 		// first 8 bytes are proof type + 7 bytes worth of amount
 		let mut amount = reader.read_u64()?;
 		// The shift leaves a single byte, so this conversion cannot lose data
-		let proof_type = ((amount & 0xFF00_0000_0000_0000) >> 56) as u8;
+		let proof_type = PaymentProofType::try_from(((amount & 0xFF00_0000_0000_0000) >> 56) as u8)
+			.map_err(|_| grin_ser::Error::CorruptedData)?;
 		amount &= 0x00FF_FFFF_FFFF_FFFF;
 
 		let receiver_public_nonce;
@@ -237,9 +266,14 @@ impl InvoiceProof {
 			}
 		};
 
-		let timestamp = match slate.payment_proof.as_ref() {
-			Some(p) => p.timestamp.timestamp(),
-			None => 0,
+		let (proof_type, timestamp) = match slate.payment_proof.as_ref() {
+			Some(p) => (
+				p.proof_type,
+				p.timestamp
+					.ok_or_else(|| Error::PaymentProof("Missing proof timestamp".to_string()))?
+					.timestamp(),
+			),
+			None => (PaymentProofType::Invoice, 0),
 		};
 
 		let memo = match slate.payment_proof.as_ref() {
@@ -253,7 +287,7 @@ impl InvoiceProof {
 		};
 
 		Ok(Self {
-			proof_type: 1u8,
+			proof_type,
 			amount: slate.amount,
 			receiver_public_nonce: slate.participant_data[participant_index].public_nonce,
 			receiver_public_excess: slate.participant_data[participant_index].public_blind_excess,
@@ -282,6 +316,7 @@ impl InvoiceProof {
 		&self,
 		recipient_address: &DalekPublicKey,
 	) -> Result<(), Error> {
+		self.proof_type.validate(PaymentProofType::Invoice)?;
 		if self.promise_signature.is_none() {
 			return Err(Error::PaymentProofValidation(
 				"Missing promise signature".into(),
@@ -334,28 +369,31 @@ impl InvoiceProof {
 
 			// Retrieve the public key sum from the kernel excess
 			let pub_blind_sum = wd.kernel_commitment.to_pubkey(&static_secp)?;
-
-			if let Err(_) = aggsig::verify_partial_sig(
+			if verify_receiver_sig(
 				&static_secp,
 				&receiver_part_sig.0,
+				&self.receiver_public_nonce,
 				&pub_nonce_sum,
 				&self.receiver_public_excess,
-				Some(&pub_blind_sum),
+				&pub_blind_sum,
 				&msg,
-			) {
+			)
+			.is_err()
+			{
 				// Try other possibility
 				if let Some(s) = receiver_part_sig.1 {
-					aggsig::verify_partial_sig(
+					verify_receiver_sig(
 						&static_secp,
 						&s,
+						&self.receiver_public_nonce,
 						&pub_nonce_sum,
 						&self.receiver_public_excess,
-						Some(&pub_blind_sum),
+						&pub_blind_sum,
 						&msg,
 					)?;
 				} else {
 					return Err(Error::PaymentProofValidation(
-						"Signature subtraction failed".into(),
+						"Receiver signature does not match the promise".into(),
 					));
 				}
 			}
@@ -401,9 +439,10 @@ where
 	})?;
 
 	let proof = PaymentInfo {
+		proof_type: invoice_proof.proof_type,
 		sender_address: proof_args.sender_address.clone(),
 		receiver_address,
-		timestamp,
+		timestamp: Some(timestamp),
 		promise_signature: Some(promise_signature),
 		memo: invoice_proof.memo,
 	};
@@ -453,6 +492,55 @@ mod tests {
 	}
 
 	#[test]
+	fn checks_receiver_nonce() {
+		let secp = Secp256k1::new();
+		let sender_key = SecretKey::from_slice(&secp, &[1; 32]).unwrap();
+		let receiver_key = SecretKey::from_slice(&secp, &[2; 32]).unwrap();
+		let sender_nonce = SecretKey::from_slice(&secp, &[3; 32]).unwrap();
+		let receiver_nonce = SecretKey::from_slice(&secp, &[4; 32]).unwrap();
+		let sender_pub_nonce = PublicKey::from_secret_key(&secp, &sender_nonce).unwrap();
+		let receiver_pub_nonce = PublicKey::from_secret_key(&secp, &receiver_nonce).unwrap();
+		let sender_excess = PublicKey::from_secret_key(&secp, &sender_key).unwrap();
+		let receiver_excess = PublicKey::from_secret_key(&secp, &receiver_key).unwrap();
+		let pub_nonce_sum =
+			PublicKey::from_combination(&secp, vec![&sender_pub_nonce, &receiver_pub_nonce])
+				.unwrap();
+		let pub_blind_sum =
+			PublicKey::from_combination(&secp, vec![&sender_excess, &receiver_excess]).unwrap();
+		let msg = Message::from_slice(&[5; 32]).unwrap();
+		let sig = aggsig::calculate_partial_sig(
+			&secp,
+			&receiver_key,
+			&receiver_nonce,
+			&pub_nonce_sum,
+			Some(&pub_blind_sum),
+			&msg,
+		)
+		.unwrap();
+
+		assert!(verify_receiver_sig(
+			&secp,
+			&sig,
+			&receiver_pub_nonce,
+			&pub_nonce_sum,
+			&receiver_excess,
+			&pub_blind_sum,
+			&msg,
+		)
+		.is_ok());
+		assert!(verify_receiver_sig(
+			&secp,
+			&sig,
+			&sender_pub_nonce,
+			&pub_nonce_sum,
+			&receiver_excess,
+			&pub_blind_sum,
+			&msg,
+		)
+		.is_err());
+	}
+
+	#[test]
 	fn ser_invoice_proof_bin() -> Result<(), Error> {
 		let mut slate = populate_test_slate()?;
 		slate.amount |= 0xFF00_0000_0000_0000;
@@ -473,6 +561,12 @@ mod tests {
 
 		let proof_deser: InvoiceProofBin = grin_ser::deserialize_default(&mut &vec[..]).unwrap();
 		assert_eq!(invoice_proof, proof_deser.0);
+
+		let mut wrong_type = invoice_proof;
+		wrong_type.proof_type = PaymentProofType::Legacy;
+		assert!(wrong_type
+			.verify_promise_signature(&slate.payment_proof.unwrap().receiver_address)
+			.is_err());
 		Ok(())
 	}
 

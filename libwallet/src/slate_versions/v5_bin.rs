@@ -21,6 +21,7 @@ use crate::grin_keychain::BlindingFactor;
 use crate::grin_util::secp::key::PublicKey;
 use crate::grin_util::secp::pedersen::{Commitment, RangeProof};
 use crate::grin_util::secp::Signature;
+use crate::slate::PaymentProofType;
 use chrono::DateTime;
 use ed25519_dalek::Signature as DalekSignature;
 use ed25519_dalek::VerifyingKey as DalekPublicKey;
@@ -220,9 +221,22 @@ struct ProofWrapRef<'a>(&'a PaymentInfoV5);
 
 impl<'a> Writeable for ProofWrapRef<'a> {
 	fn write<W: Writer>(&self, writer: &mut W) -> Result<(), grin_ser::Error> {
-		writer.write_fixed_bytes(self.0.saddr.to_bytes())?;
+		writer.write_u8(self.0.ptype.as_u8())?;
+		match self.0.saddr {
+			Some(a) => {
+				writer.write_u8(1)?;
+				writer.write_fixed_bytes(a.to_bytes())?;
+			}
+			None => writer.write_u8(0)?,
+		}
 		writer.write_fixed_bytes(self.0.raddr.to_bytes())?;
-		writer.write_i64(self.0.ts.timestamp())?;
+		match self.0.ts {
+			Some(ts) => {
+				writer.write_u8(1)?;
+				writer.write_i64(ts.timestamp())?;
+			}
+			None => writer.write_u8(0)?,
+		}
 		match self.0.psig {
 			Some(s) => {
 				writer.write_u8(1)?;
@@ -244,46 +258,89 @@ impl<'a> Writeable for ProofWrapRef<'a> {
 
 impl Readable for ProofWrap {
 	fn read<R: Reader>(reader: &mut R) -> Result<ProofWrap, grin_ser::Error> {
-		let saddr_bytes = reader.read_fixed_bytes(32)?;
-		let saddr_bytes = <&[u8; 32]>::try_from(saddr_bytes.as_slice())
+		let ptype = PaymentProofType::try_from(reader.read_u8()?)
 			.map_err(|_| grin_ser::Error::CorruptedData)?;
-		let saddr =
-			DalekPublicKey::from_bytes(saddr_bytes).map_err(|_| grin_ser::Error::CorruptedData)?;
+		let saddr = match reader.read_u8()? {
+			0 => None,
+			1 => {
+				let bytes = reader.read_fixed_bytes(32)?;
+				let bytes = <&[u8; 32]>::try_from(bytes.as_slice())
+					.map_err(|_| grin_ser::Error::CorruptedData)?;
+				Some(
+					DalekPublicKey::from_bytes(bytes)
+						.map_err(|_| grin_ser::Error::CorruptedData)?,
+				)
+			}
+			_ => return Err(grin_ser::Error::CorruptedData),
+		};
 
 		let raddr_bytes = reader.read_fixed_bytes(32)?;
 		let raddr_bytes = <&[u8; 32]>::try_from(raddr_bytes.as_slice())
 			.map_err(|_| grin_ser::Error::CorruptedData)?;
 		let raddr =
 			DalekPublicKey::from_bytes(raddr_bytes).map_err(|_| grin_ser::Error::CorruptedData)?;
-		let ts_raw: i64 = match reader.read_i64() {
-			Ok(v) => v,
-			Err(_) => return Err(grin_ser::Error::CorruptedData),
-		};
-		let ts = match DateTime::from_timestamp(ts_raw, 0) {
-			Some(ts) => ts,
-			None => return Err(grin_ser::Error::CorruptedData),
+		let ts = match reader.read_u8()? {
+			0 => None,
+			1 => Some(
+				DateTime::from_timestamp(reader.read_i64()?, 0)
+					.ok_or(grin_ser::Error::CorruptedData)?,
+			),
+			_ => return Err(grin_ser::Error::CorruptedData),
 		};
 		let psig = match reader.read_u8()? {
 			0 => None,
-			1 | _ => Some(
+			1 => Some(
 				DalekSignature::try_from(&reader.read_fixed_bytes(64)?[..])
 					.map_err(|_| grin_ser::Error::CorruptedData)?,
 			),
+			_ => return Err(grin_ser::Error::CorruptedData),
 		};
 		let memo = match reader.read_u8()? {
 			0 => None,
-			1 | _ => Some(PaymentMemoV5 {
+			1 => Some(PaymentMemoV5 {
 				memo_type: reader.read_u8()?,
-				memo: reader.read_fixed_bytes(32)?.try_into().unwrap_or_default(),
+				memo: reader
+					.read_fixed_bytes(32)?
+					.try_into()
+					.map_err(|_| grin_ser::Error::CorruptedData)?,
 			}),
+			_ => return Err(grin_ser::Error::CorruptedData),
 		};
 		Ok(ProofWrap(PaymentInfoV5 {
+			ptype,
 			saddr,
 			raddr,
 			ts,
 			psig,
 			memo,
 		}))
+	}
+}
+
+#[test]
+fn rejects_invalid_proof_fields() {
+	use crate::grin_util::from_hex;
+
+	let bytes =
+		from_hex("d03c09e9c19bb74aa9ea44e0fe5ae237a9bf40bddf0941064a80913a4459c8bb").unwrap();
+	let key = DalekPublicKey::from_bytes(bytes.as_slice().try_into().unwrap()).unwrap();
+	let proof = PaymentInfoV5 {
+		ptype: PaymentProofType::Invoice,
+		saddr: None,
+		raddr: key,
+		ts: None,
+		psig: None,
+		memo: None,
+	};
+	let mut encoded = Vec::new();
+	grin_ser::serialize_default(&mut encoded, &ProofWrapRef(&proof)).unwrap();
+
+	// ptype followed by the four optional-field flags
+	for (offset, value) in [(0, 3), (1, 2), (34, 2), (35, 2), (36, 2)] {
+		let mut invalid = encoded.clone();
+		invalid[offset] = value;
+		let result: Result<ProofWrap, _> = grin_ser::deserialize_default(&mut invalid.as_slice());
+		assert!(result.is_err());
 	}
 }
 
@@ -521,9 +578,10 @@ fn slate_v5_serialize_deserialize() {
 		memo: [9; 32],
 	};
 	v5.proof = Some(PaymentInfoV5 {
+		ptype: PaymentProofType::Invoice,
 		raddr: d_pkey.clone(),
-		saddr: d_pkey.clone(),
-		ts: ts.clone(),
+		saddr: Some(d_pkey.clone()),
+		ts: Some(ts.clone()),
 		psig: None,
 		memo: Some(pm),
 	});

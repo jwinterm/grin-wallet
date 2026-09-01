@@ -28,6 +28,7 @@ use crate::grin_core::core::FeeFields;
 use crate::grin_keychain::Keychain;
 use crate::grin_util::secp::key::SecretKey;
 use crate::internal::{selection, tx, updater};
+use crate::slate::PaymentProofType;
 use crate::slate_versions::SlateVersion;
 use crate::{
 	address, BlockFees, CbData, Error, NodeClient, Slate, SlateState, TxLogEntryType, VersionInfo,
@@ -118,6 +119,7 @@ where
 	let excess = ret_slate.calc_excess(keychain.secp())?;
 
 	if let Some(ref mut p) = ret_slate.payment_proof {
+		p.proof_type.validate(PaymentProofType::Legacy)?;
 		if let Some(saddr) = p.sender_address {
 			let sig = tx::create_payment_proof_signature(
 				ret_slate.amount,

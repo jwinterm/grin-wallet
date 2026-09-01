@@ -25,7 +25,7 @@ use crate::grin_util::secp::key::SecretKey;
 use crate::grin_util::secp::pedersen;
 use crate::grin_util::Mutex;
 use crate::internal::{selection, updater};
-use crate::slate::Slate;
+use crate::slate::{PaymentProofType, Slate};
 use crate::types::{Context, NodeClient, StoredProofInfo, TxLogEntryType};
 use crate::util::OnionV3Address;
 use crate::{address, Error};
@@ -437,21 +437,13 @@ where
 				address::address_from_derivation_path(&keychain, &parent_key_id, derivation_index)?;
 			let sender_address = OnionV3Address::from_private(&sender_key.0)?;
 			let sig = create_payment_proof_signature(slate.amount, &excess, saddr, sender_key)?;
-			tx.payment_proof = Some(StoredProofInfo {
-				receiver_address: p.receiver_address,
-				receiver_signature: p.promise_signature,
-				sender_address_path: derivation_index,
-				sender_address: sender_address.to_ed25519()?,
-				sender_signature: Some(sig),
-				// Filled in during the contract proof flow; unused on the legacy path.
-				proof_type: None,
-				receiver_public_nonce: None,
-				receiver_public_excess: None,
-				timestamp: None,
-				memo: None,
-				promise_signature: None,
-				sender_part_sig: None,
-			})
+			tx.payment_proof = Some(StoredProofInfo::new(
+				p.receiver_address,
+				p.promise_signature,
+				sender_address.to_ed25519()?,
+				derivation_index,
+				Some(sig),
+			))
 		}
 	}
 
@@ -543,6 +535,7 @@ where
 	}
 
 	if let Some(ref p) = slate.clone().payment_proof {
+		p.proof_type.validate(PaymentProofType::Legacy)?;
 		let orig_proof_info = match orig_proof_info {
 			Some(p) => p.clone(),
 			None => {

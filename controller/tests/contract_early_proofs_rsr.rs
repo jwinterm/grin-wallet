@@ -37,6 +37,17 @@ mod common;
 use common::{clean_output_dir, create_wallets, setup};
 use std::path::PathBuf;
 
+fn roundtrip_slate(slate: &Slate, version: u16) -> Result<Slate, libwallet::Error> {
+	let packer = Slatepacker::new(SlatepackerArgs {
+		sender: None,
+		recipients: vec![],
+		dec_key: None,
+	});
+	let slate = packer.get_slate(&packer.create_slatepack(slate)?)?;
+	assert_eq!(slate.version_info.version, version);
+	Ok(slate)
+}
+
 /// Development + Tests of early payment proof functionality - RSR workflow
 fn contract_early_proofs_rsr_test_impl(test_dir: &'static str) -> Result<(), libwallet::Error> {
 	// create two wallets and mine 4 blocks in each (we want both to have balance to get a payjoin)
@@ -86,19 +97,7 @@ fn contract_early_proofs_rsr_test_impl(test_dir: &'static str) -> Result<(), lib
 
 	assert_eq!(slate.state, SlateState::Invoice1);
 	println!("I1 State slate: {}", slate);
-
-	// Serialize slate into slatepack
-	let slatepacker_args = SlatepackerArgs {
-		sender: None,
-		recipients: vec![],
-		dec_key: None,
-	};
-
-	let slate_packer = Slatepacker::new(slatepacker_args);
-	let slate_packed = slate_packer.create_slatepack(&slate).unwrap();
-
-	let slate_unpacked = slate_packer.get_slate(&slate_packed).unwrap();
-	println!("I2 Slate unpacked: {}", slate_unpacked);
+	slate = roundtrip_slate(&slate, 5)?;
 
 	wallet::controller::owner_single_use(
 		send_wallet.clone(),
@@ -110,13 +109,14 @@ fn contract_early_proofs_rsr_test_impl(test_dir: &'static str) -> Result<(), lib
 				net_change: Some(-5_000_000_000),
 				..Default::default()
 			};
-			slate = api.contract_sign(m, &slate_unpacked, args)?;
+			slate = api.contract_sign(m, &slate, args)?;
 			Ok(())
 		},
 	)?;
 	println!("I2 State slate: {}", slate);
 
 	assert_eq!(slate.state, SlateState::Invoice2);
+	slate = roundtrip_slate(&slate, 5)?;
 
 	// Send wallet finalizes and posts
 	wallet::controller::owner_single_use(
@@ -132,6 +132,7 @@ fn contract_early_proofs_rsr_test_impl(test_dir: &'static str) -> Result<(), lib
 		},
 	)?;
 	assert_eq!(slate.state, SlateState::Invoice3);
+	slate = roundtrip_slate(&slate, 5)?;
 
 	wallet::controller::owner_single_use(
 		send_wallet.clone(),

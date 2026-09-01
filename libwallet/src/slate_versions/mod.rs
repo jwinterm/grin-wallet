@@ -55,11 +55,10 @@ pub enum SlateVersion {
 impl SlateVersion {
 	/// The lowest version that can represent this slate without losing data, so a slate
 	/// is only sent as V5 when it has to be. V4 carries the payment proof's sender and
-	/// receiver addresses and its signature, but neither the timestamp nor the memo, so
-	/// only a proof using one of those needs V5. A legacy send proof sets neither.
+	/// receiver addresses and its signature, but not the proof type, timestamp or memo.
 	pub fn lowest_for(slate: &Slate) -> SlateVersion {
 		match &slate.payment_proof {
-			Some(p) if p.memo.is_some() || p.timestamp.timestamp() != 0 => SlateVersion::V5,
+			Some(p) if p.requires_v5() => SlateVersion::V5,
 			_ => SlateVersion::V4,
 		}
 	}
@@ -89,7 +88,7 @@ impl VersionedSlate {
 	pub fn into_version(slate: Slate, version: SlateVersion) -> Result<VersionedSlate, Error> {
 		match version {
 			SlateVersion::V5 => Ok(VersionedSlate::V5(slate.into())),
-			SlateVersion::V4 => Ok(VersionedSlate::V4(slate.into())),
+			SlateVersion::V4 => Ok(VersionedSlate::V4(SlateV4::try_from(slate)?)),
 		}
 	}
 }
@@ -163,7 +162,10 @@ pub mod tests {
 	use crate::grin_util::secp::key::PublicKey;
 	use crate::grin_util::secp::pedersen::{Commitment, RangeProof};
 	use crate::grin_util::secp::Signature;
-	use crate::slate::{KernelFeaturesArgs, ParticipantData, PaymentInfo, PaymentMemo};
+	use crate::slate::{
+		KernelFeaturesArgs, ParticipantData, PaymentInfo, PaymentMemo, PaymentProofType,
+	};
+	use crate::slate_versions::v4::SlateV4;
 	use crate::slate_versions::v5::{CommitsV5, SlateV5};
 	use crate::{
 		slate, Error, Slate, SlateVersion, Slatepacker, SlatepackerArgs, VersionedBinSlate,
@@ -252,14 +254,37 @@ pub mod tests {
 
 		let psig = DalekSignature::from_bytes(&[0u8; 64]);
 		slate_internal.payment_proof = Some(PaymentInfo {
+			proof_type: PaymentProofType::Invoice,
 			sender_address: Some(d_pkey.clone()),
 			receiver_address: d_pkey.clone(),
-			timestamp: ts.clone(),
+			timestamp: Some(ts.clone()),
 			promise_signature: Some(psig),
 			memo: Some(pm),
 		});
 
 		Ok(slate_internal)
+	}
+
+	fn use_legacy_proof(slate: &mut Slate) {
+		if let Some(proof) = slate.payment_proof.as_mut() {
+			proof.proof_type = PaymentProofType::Legacy;
+			proof.timestamp = None;
+			proof.memo = None;
+		}
+	}
+
+	#[test]
+	fn v5_proof_requires_type() -> Result<(), Error> {
+		let v5 = SlateV5::from(populate_test_slate()?);
+		let mut value = serde_json::to_value(v5).unwrap();
+		let proof = value["proof"].as_object_mut().unwrap();
+		assert_eq!(proof["ptype"].as_u64(), Some(1));
+		proof.remove("ptype");
+		assert!(serde_json::from_value::<SlateV5>(value.clone()).is_err());
+
+		value["proof"]["ptype"] = serde_json::json!(3);
+		assert!(serde_json::from_value::<SlateV5>(value).is_err());
+		Ok(())
 	}
 
 	#[test]
@@ -306,20 +331,31 @@ pub mod tests {
 		let recovered_v4 = packer.get_slate(&packer.create_slatepack(&slate_no_proof)?)?;
 		assert_eq!(recovered_v4.version_info.version, 4);
 
-		// A legacy send proof uses no V5 field: the timestamp is left at the epoch and
-		// there is no memo. It must stay V4 so V4-only wallets can still read the slate,
+		// A legacy send proof uses no V5 field. It must stay V4 so V4-only wallets can read it,
 		// and the proof has to survive the round trip intact.
 		let mut slate_legacy_proof = populate_test_slate()?;
-		let mut proof = slate_legacy_proof.payment_proof.clone().unwrap();
-		proof.timestamp = DateTime::from_timestamp(0, 0).unwrap();
-		proof.memo = None;
-		slate_legacy_proof.payment_proof = Some(proof.clone());
+		use_legacy_proof(&mut slate_legacy_proof);
+		let proof = slate_legacy_proof.payment_proof.clone().unwrap();
 		let recovered_legacy = packer.get_slate(&packer.create_slatepack(&slate_legacy_proof)?)?;
 		assert_eq!(recovered_legacy.version_info.version, 4);
 		let recovered_proof = recovered_legacy.payment_proof.unwrap();
 		assert_eq!(recovered_proof.sender_address, proof.sender_address);
 		assert_eq!(recovered_proof.receiver_address, proof.receiver_address);
 		assert_eq!(recovered_proof.promise_signature, proof.promise_signature);
+
+		let mut partial_proof = populate_test_slate()?;
+		let proof = partial_proof.payment_proof.as_mut().unwrap();
+		proof.sender_address = None;
+		proof.timestamp = None;
+		proof.memo = None;
+		proof.promise_signature = None;
+		let recovered = packer.get_slate(&packer.create_slatepack(&partial_proof)?)?;
+		assert_eq!(recovered.version_info.version, 5);
+		let proof = recovered.payment_proof.unwrap();
+		assert!(proof.sender_address.is_none());
+		assert!(proof.timestamp.is_none());
+
+		assert!(SlateV4::try_from(populate_test_slate()?).is_err());
 
 		Ok(())
 	}
@@ -331,24 +367,23 @@ pub mod tests {
 		// Convert V5 slate into V4 slate, check result
 		let slate_internal = populate_test_slate()?;
 		let v5 = VersionedSlate::V5(slate_internal.clone().into());
-		let v4 = VersionedSlate::V4(slate_internal.into());
+		let mut legacy_slate = slate_internal;
+		use_legacy_proof(&mut legacy_slate);
+		let v4 = VersionedSlate::V4(SlateV4::try_from(legacy_slate)?);
 
 		let v5_converted: Slate = v5.into();
 		let v4_converted: Slate = v4.into();
 
 		assert!(v5_converted.payment_proof.as_ref().unwrap().memo.is_some());
 
-		// Converted from v4 will not have memos and ts will be zeroed out
+		// V4 has no memo or timestamp
 		assert!(v4_converted.payment_proof.as_ref().unwrap().memo.is_none());
-		assert_eq!(
-			v4_converted
-				.payment_proof
-				.as_ref()
-				.unwrap()
-				.timestamp
-				.timestamp(),
-			0
-		);
+		assert!(v4_converted
+			.payment_proof
+			.as_ref()
+			.unwrap()
+			.timestamp
+			.is_none());
 
 		Ok(())
 	}
@@ -368,6 +403,8 @@ pub mod tests {
 				let mut slate = slate_internal.clone();
 				if !with_proof {
 					slate.payment_proof = None;
+				} else if version == SlateVersion::V4 {
+					use_legacy_proof(&mut slate);
 				}
 				slate.version_info.version = match version {
 					SlateVersion::V4 => 4,
@@ -393,6 +430,8 @@ pub mod tests {
 				let mut slate = slate_internal.clone();
 				if !with_proof {
 					slate.payment_proof = None;
+				} else if version == SlateVersion::V4 {
+					use_legacy_proof(&mut slate);
 				}
 				slate.version_info.version = match version {
 					SlateVersion::V4 => 4,
@@ -420,7 +459,9 @@ pub mod tests {
 		let v5 = VersionedSlate::V5(slate_internal.clone().into());
 		let v5_bin: VersionedBinSlate = v5.try_into().unwrap();
 
-		let v4 = VersionedSlate::V4(slate_internal.into());
+		let mut legacy_slate = slate_internal;
+		use_legacy_proof(&mut legacy_slate);
+		let v4 = VersionedSlate::V4(SlateV4::try_from(legacy_slate)?);
 		let v4_bin: VersionedBinSlate = v4.try_into().unwrap();
 
 		let v5_versioned: VersionedSlate = v5_bin.into();
@@ -430,17 +471,14 @@ pub mod tests {
 		let v4_converted: Slate = v4_versioned.into();
 
 		assert!(v5_converted.payment_proof.as_ref().unwrap().memo.is_some());
-		// Converted from v4 will not have memos and ts will be zeroed out
+		// V4 has no memo or timestamp
 		assert!(v4_converted.payment_proof.as_ref().unwrap().memo.is_none());
-		assert_eq!(
-			v4_converted
-				.payment_proof
-				.as_ref()
-				.unwrap()
-				.timestamp
-				.timestamp(),
-			0
-		);
+		assert!(v4_converted
+			.payment_proof
+			.as_ref()
+			.unwrap()
+			.timestamp
+			.is_none());
 
 		Ok(())
 	}

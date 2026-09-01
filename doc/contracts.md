@@ -54,13 +54,27 @@ account selected with `--account`.
 
 * Only one or two participants are supported
 * A returned slate is not yet checked against every input and output saved during setup
-* Early invoice payment proofs are only available through the API and require the
-  experimental Slate V5 format. Other proof types are not supported
+* Early payment proofs are only implemented for contracts and are only available through
+  the API. Only invoice proofs are supported and they require the experimental Slate V5
+  format. The full proposal is described in
+  [Early Payment Proofs](https://github.com/mimblewimble/grin-rfcs/pull/70)
 * Custom fee rates and contract TTLs are not supported
 * There are no contract-specific history, lookup or transport commands. Payment proof
-  memos cannot be set through the contract API or CLI
+  memos cannot be set through the contract API or CLI. The current proof stores a memo
+  type and 32 bytes instead of the text and hash described by the early payment proofs
+  proposal
 * If writing the signed transaction file fails, the wallet state has already been saved.
   Cancelling the transaction releases the locked inputs
 
 Implementation notes and remaining work are kept in
 [`libwallet/src/contract/actions/README.md`](../libwallet/src/contract/actions/README.md).
+
+## References
+
+* [Contract prototype discussion](https://forum.grin.mw/t/grin-wallet-contract-prototype/9745)
+* [Manual confirmation proposal](https://github.com/mimblewimble/grin-rfcs/pull/84) (open)
+* [Early payment proofs proposal](https://github.com/mimblewimble/grin-rfcs/pull/70) (open)
+* [RFC 0006: Payment Proofs](https://github.com/mimblewimble/grin-rfcs/blob/master/text/0006-payment-proofs.md)
+* [RFC 0012: Compact Slates](https://github.com/mimblewimble/grin-rfcs/blob/master/text/0012-compact-slates.md)
+* [RFC 0015: Slatepack](https://github.com/mimblewimble/grin-rfcs/blob/master/text/0015-slatepack.md)
+* [RFC 0017: Fix Fees](https://github.com/mimblewimble/grin-rfcs/blob/master/text/0017-fix-fees.md)

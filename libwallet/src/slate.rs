@@ -48,6 +48,72 @@ use crate::slate_versions::VersionedSlate;
 use crate::slate_versions::{CURRENT_SLATE_VERSION, GRIN_BLOCK_HEADER_VERSION};
 use crate::Context;
 
+/// Payment proof type from https://github.com/mimblewimble/grin-rfcs/pull/70
+#[repr(u8)]
+#[derive(Clone, Copy, Serialize, Deserialize, Debug, Eq, PartialEq)]
+pub enum PaymentProofType {
+	/// Legacy payment proof
+	Legacy = 0,
+	/// Invoice payment proof
+	Invoice = 1,
+	/// Sender nonce payment proof
+	SenderNonce = 2,
+}
+
+impl PaymentProofType {
+	/// Wire value
+	pub fn as_u8(self) -> u8 {
+		self as u8
+	}
+
+	pub(crate) fn validate(self, expected: Self) -> Result<(), Error> {
+		if self == expected {
+			Ok(())
+		} else {
+			Err(Error::PaymentProof(format!(
+				"Invalid payment proof type: expected {:?}, got {:?}",
+				expected, self
+			)))
+		}
+	}
+}
+
+impl TryFrom<u8> for PaymentProofType {
+	type Error = Error;
+
+	fn try_from(value: u8) -> Result<Self, Self::Error> {
+		match value {
+			0 => Ok(Self::Legacy),
+			1 => Ok(Self::Invoice),
+			2 => Ok(Self::SenderNonce),
+			_ => Err(Error::PaymentProof(format!(
+				"Invalid payment proof type: {}",
+				value
+			))),
+		}
+	}
+}
+
+pub(crate) mod payment_proof_type_serde {
+	use super::PaymentProofType;
+	use serde::{Deserialize, Deserializer, Serializer};
+
+	pub fn serialize<S>(proof_type: &PaymentProofType, serializer: S) -> Result<S::Ok, S::Error>
+	where
+		S: Serializer,
+	{
+		serializer.serialize_u8(proof_type.as_u8())
+	}
+
+	pub fn deserialize<'de, D>(deserializer: D) -> Result<PaymentProofType, D::Error>
+	where
+		D: Deserializer<'de>,
+	{
+		let value = u8::deserialize(deserializer)?;
+		PaymentProofType::try_from(value).map_err(serde::de::Error::custom)
+	}
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct PaymentMemo {
 	// The type of memo
@@ -61,16 +127,28 @@ pub struct PaymentMemo {
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct PaymentInfo {
+	/// Proof type
+	pub proof_type: PaymentProofType,
 	/// Sender address
 	pub sender_address: Option<DalekPublicKey>,
 	/// Receiver address
 	pub receiver_address: DalekPublicKey,
 	/// Promise signature
 	pub promise_signature: Option<DalekSignature>,
-	/// Timestamp (seconds)
-	pub timestamp: DateTime<Utc>,
+	/// Timestamp
+	pub timestamp: Option<DateTime<Utc>>,
 	/// Memo
 	pub memo: Option<PaymentMemo>,
+}
+
+impl PaymentInfo {
+	/// Whether this proof needs fields that are only available in V5
+	pub(crate) fn requires_v5(&self) -> bool {
+		self.proof_type != PaymentProofType::Legacy
+			|| self.sender_address.is_none()
+			|| self.timestamp.is_some()
+			|| self.memo.is_some()
+	}
 }
 
 /// Public data for each participant in the slate
@@ -930,24 +1008,15 @@ impl From<&VersionCompatInfo> for VersionCompatInfoV5 {
 impl From<&PaymentInfo> for PaymentInfoV5 {
 	fn from(data: &PaymentInfo) -> PaymentInfoV5 {
 		let PaymentInfo {
+			proof_type,
 			sender_address,
 			receiver_address,
 			promise_signature,
 			timestamp,
 			memo,
 		} = data;
+		let proof_type = *proof_type;
 		let sender_address = *sender_address;
-		// Downgrading a proof with no sender address emits an all-zero placeholder key
-		// (a valid small-order ed25519 point, so from_bytes never panics). It can never be
-		// accepted as a real sender: every verification path binds the sender address into
-		// the signed message (contract::proofs::InvoiceProof::verify_promise_signature, and
-		// the legacy api_impl::owner::verify_payment_proof via internal::tx::payment_proof_message),
-		// so a proof only validates against the address the verifier supplies, never one
-		// derived from the proof. From is infallible by design, so we do not fail here.
-		let saddr = match sender_address {
-			Some(a) => a,
-			None => DalekPublicKey::from_bytes(&[0u8; 32]).unwrap(),
-		};
 		let receiver_address = *receiver_address;
 		let promise_signature = *promise_signature;
 		let timestamp = *timestamp;
@@ -959,7 +1028,8 @@ impl From<&PaymentInfo> for PaymentInfoV5 {
 			None => None,
 		};
 		PaymentInfoV5 {
-			saddr,
+			ptype: proof_type,
+			saddr: sender_address,
 			raddr: receiver_address,
 			psig: promise_signature,
 			ts: timestamp,
@@ -1156,12 +1226,14 @@ impl From<&VersionCompatInfoV5> for VersionCompatInfo {
 impl From<&PaymentInfoV5> for PaymentInfo {
 	fn from(data: &PaymentInfoV5) -> PaymentInfo {
 		let PaymentInfoV5 {
+			ptype: proof_type,
 			saddr: sender_address,
 			raddr: receiver_address,
 			psig: promise_signature,
 			ts: timestamp,
 			memo,
 		} = data;
+		let proof_type = *proof_type;
 		let sender_address = *sender_address;
 		let receiver_address = *receiver_address;
 		let promise_signature = *promise_signature;
@@ -1177,7 +1249,8 @@ impl From<&PaymentInfoV5> for PaymentInfo {
 			None => None,
 		};
 		PaymentInfo {
-			sender_address: Some(sender_address),
+			proof_type,
+			sender_address,
 			receiver_address,
 			promise_signature: promise_signature,
 			timestamp,
@@ -1196,54 +1269,18 @@ impl From<OutputFeaturesV5> for OutputFeatures {
 }
 
 ///////// V4
-impl From<Slate> for SlateV4 {
-	fn from(slate: Slate) -> SlateV4 {
-		let Slate {
-			num_participants: num_parts,
-			id,
-			state,
-			tx: _,
-			amount,
-			fee_fields,
-			kernel_features,
-			ttl_cutoff_height: ttl,
-			offset: off,
-			participant_data,
-			version_info,
-			payment_proof,
-			kernel_features_args,
-		} = slate.clone();
-		let participant_data = map_vec!(participant_data, |data| ParticipantDataV4::from(data));
-		let ver = VersionCompatInfoV4::from(&version_info);
-		let payment_proof = match payment_proof {
-			Some(p) => Some(PaymentInfoV4::from(&p)),
-			None => None,
-		};
-		let feat_args = match kernel_features_args {
-			Some(a) => Some(KernelFeaturesArgsV4::from(&a)),
-			None => None,
-		};
-		let sta = SlateStateV4::from(&state);
-		SlateV4 {
-			num_parts,
-			id,
-			sta,
-			coms: (&slate).into(),
-			amt: amount,
-			fee: fee_fields,
-			feat: kernel_features,
-			ttl,
-			off,
-			sigs: participant_data,
-			ver,
-			proof: payment_proof,
-			feat_args,
-		}
+impl TryFrom<Slate> for SlateV4 {
+	type Error = Error;
+
+	fn try_from(slate: Slate) -> Result<SlateV4, Self::Error> {
+		Self::try_from(&slate)
 	}
 }
 
-impl From<&Slate> for SlateV4 {
-	fn from(slate: &Slate) -> SlateV4 {
+impl TryFrom<&Slate> for SlateV4 {
+	type Error = Error;
+
+	fn try_from(slate: &Slate) -> Result<SlateV4, Self::Error> {
 		let Slate {
 			num_participants: num_parts,
 			id,
@@ -1268,16 +1305,16 @@ impl From<&Slate> for SlateV4 {
 		let off = offset.clone();
 		let participant_data = map_vec!(participant_data, |data| ParticipantDataV4::from(data));
 		let ver = VersionCompatInfoV4::from(version_info);
-		let payment_proof = match payment_proof {
-			Some(p) => Some(PaymentInfoV4::from(p)),
-			None => None,
-		};
+		let payment_proof = payment_proof
+			.as_ref()
+			.map(PaymentInfoV4::try_from)
+			.transpose()?;
 		let sta = SlateStateV4::from(state);
 		let feat_args = match kernel_features_args {
 			Some(a) => Some(KernelFeaturesArgsV4::from(a)),
 			None => None,
 		};
-		SlateV4 {
+		Ok(SlateV4 {
 			num_parts,
 			id,
 			sta,
@@ -1291,7 +1328,7 @@ impl From<&Slate> for SlateV4 {
 			ver,
 			proof: payment_proof,
 			feat_args,
-		}
+		})
 	}
 }
 
@@ -1372,32 +1409,28 @@ impl From<&VersionCompatInfo> for VersionCompatInfoV4 {
 	}
 }
 
-impl From<&PaymentInfo> for PaymentInfoV4 {
-	fn from(data: &PaymentInfo) -> PaymentInfoV4 {
+impl TryFrom<&PaymentInfo> for PaymentInfoV4 {
+	type Error = Error;
+
+	fn try_from(data: &PaymentInfo) -> Result<PaymentInfoV4, Self::Error> {
+		if data.requires_v5() {
+			return Err(Error::SlateInvalidDowngrade(
+				"Payment proof requires slate version 5".to_string(),
+			));
+		}
 		let PaymentInfo {
 			sender_address,
 			receiver_address,
 			promise_signature: receiver_signature,
-			timestamp: _,
-			memo: _,
+			..
 		} = data;
-		let sender_address = *sender_address;
-		// As in the V5 downgrade: an all-zero placeholder key for a missing sender address.
-		// It can never be accepted as a real sender because the legacy verify path binds the
-		// sender address into the signed message (internal::tx::payment_proof_message, checked
-		// in api_impl::owner::verify_payment_proof). V4 carries only the legacy receiver
-		// signature, so the placeholder is inert. From is infallible by design.
-		let saddr = match sender_address {
-			Some(a) => a,
-			None => DalekPublicKey::from_bytes(&[0u8; 32]).unwrap(),
-		};
-		let receiver_address = *receiver_address;
-		let receiver_signature = *receiver_signature;
-		PaymentInfoV4 {
-			saddr,
-			raddr: receiver_address,
-			rsig: receiver_signature,
-		}
+		Ok(PaymentInfoV4 {
+			saddr: sender_address.ok_or_else(|| {
+				Error::SlateInvalidDowngrade("Payment proof requires a sender address".to_string())
+			})?,
+			raddr: *receiver_address,
+			rsig: *receiver_signature,
+		})
 	}
 }
 
@@ -1597,10 +1630,11 @@ impl From<&PaymentInfoV4> for PaymentInfo {
 		let receiver_address = *receiver_address;
 		let receiver_signature = *receiver_signature;
 		PaymentInfo {
+			proof_type: PaymentProofType::Legacy,
 			sender_address: Some(sender_address),
 			receiver_address,
 			promise_signature: receiver_signature,
-			timestamp: DateTime::from_timestamp(0, 0).unwrap(),
+			timestamp: None,
 			memo: None,
 		}
 	}

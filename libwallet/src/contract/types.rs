@@ -15,6 +15,7 @@
 //! Types related to a contract
 
 use crate::error::Error;
+pub use crate::slate::PaymentProofType as ProofType;
 use crate::slate_versions::ser as dalek_ser;
 use ed25519_dalek::VerifyingKey as DalekPublicKey;
 
@@ -74,20 +75,6 @@ impl Default for OutputSelectionArgs {
 			make_outputs: None,
 		}
 	}
-}
-
-/// Types of proof that can be generated
-/// as per https://github.com/tromp/grin-rfcs/blob/early-payment-proofs/text/0000-early-payment-proofs.md
-/// TODO: Update when RFC is merged
-
-#[derive(Clone, Serialize, Deserialize, Debug)]
-pub enum ProofType {
-	/// Legacy (0x00)
-	Legacy,
-	/// Invoice (0x01)
-	Invoice,
-	/// Sender Nonce (0x02)
-	SenderNonce,
 }
 
 /// Proof generation parameters that can be provided during new or sign phases

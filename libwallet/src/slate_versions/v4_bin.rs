@@ -520,7 +520,7 @@ fn slate_v4_serialize_deserialize() {
 
 	set_local_chain_type(ChainTypes::Mainnet);
 	let slate = Slate::blank(1, false);
-	let mut v4 = SlateV4::from(slate);
+	let mut v4 = SlateV4::try_from(slate).unwrap();
 
 	let keychain = ExtKeychain::from_random_seed(true).unwrap();
 	let switch = SwitchCommitmentType::Regular;
