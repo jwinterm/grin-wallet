@@ -791,7 +791,7 @@ pub struct StoredProofInfo {
 	/// Optional payment memo
 	pub memo: Option<PaymentMemo>,
 	/// recipient promise signature
-	#[serde(with = "dalek_ser::option_dalek_sig_serde")]
+	#[serde(default, with = "dalek_ser::option_dalek_sig_serde")]
 	pub promise_signature: Option<DalekSignature>,
 	/// Original Sender partial key
 	pub sender_part_sig: Option<Signature>,
@@ -1005,6 +1005,7 @@ pub mod option_duration_as_secs {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use ed25519_dalek::SigningKey as DalekSecretKey;
 	use grin_core::ser::{DeserializationMode, ProtocolVersion, Readable, Reader, StreamingReader};
 	use grin_keychain::{ExtKeychain, ExtKeychainPath};
 	use serde_json::Value;
@@ -1047,6 +1048,24 @@ mod tests {
 
 		let none2 = serde_json::from_str::<TestSer>("{}").unwrap();
 		assert_eq!(none, none2);
+	}
+
+	#[test]
+	fn reads_old_payment_proof() {
+		let address = DalekSecretKey::from_bytes(&[1; 32])
+			.verifying_key()
+			.to_bytes()
+			.to_hex();
+		let proof = serde_json::json!({
+			"receiver_address": address,
+			"receiver_signature": null,
+			"sender_address_path": 0,
+			"sender_address": address,
+			"sender_signature": null
+		});
+
+		let proof: StoredProofInfo = serde_json::from_value(proof).unwrap();
+		assert!(proof.promise_signature.is_none());
 	}
 
 	#[test]
