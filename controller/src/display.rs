@@ -646,19 +646,36 @@ pub fn contract_view(slate: &Slate, view: &ContractView) {
 	table.add_row(row![bFC->"State", bGC->slate.state]);
 	table.add_row(row![bFC->"Participants", bGC->view.num_participants]);
 	table.add_row(row![bFC->"Signatures", bGC->view.num_sigs]);
-	let suggested = match view.suggested_net_change {
-		Some(v) => amount_to_hr_string(v.unsigned_abs(), false),
-		None => String::from("None"),
-	};
-	table.add_row(row![bFC->"Suggested Net Change", bGC->suggested]);
-	let agreed = match view.agreed_net_change {
-		Some(v) => amount_to_hr_string(v.unsigned_abs(), false),
-		None => String::from("None"),
-	};
+	let suggested = format_net_change(view.suggested_net_change);
+	table.add_row(row![bFC->"Suggested Counterparty Net Change", bGC->suggested]);
+	let agreed = format_net_change(view.agreed_net_change);
 	table.add_row(row![bFC->"Agreed Net Change", bGC->agreed]);
 	table.add_row(row![bFC->"Executed", bGC->view.is_executed]);
 
 	table.set_format(*prettytable::format::consts::FORMAT_NO_BORDER_LINE_SEPARATOR);
 	table.printstd();
 	println!();
+}
+
+fn format_net_change(change: Option<i64>) -> String {
+	match change {
+		Some(value) => format!(
+			"{}{}",
+			if value < 0 { "-" } else { "+" },
+			amount_to_hr_string(value.unsigned_abs(), false)
+		),
+		None => String::from("None"),
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::format_net_change;
+
+	#[test]
+	fn net_change_sign() {
+		assert_eq!(format_net_change(Some(1_000_000_000)), "+1.000000000");
+		assert_eq!(format_net_change(Some(-1_000_000_000)), "-1.000000000");
+		assert_eq!(format_net_change(None), "None");
+	}
 }

@@ -54,7 +54,6 @@ Separating side effects until the 'save_step' part would make these functions mu
  - Let `view` report whether a slatepack was encrypted for this wallet.
  - Show all inputs, outputs, fees and resulting balance changes before the CLI signs.
  - Distinguish the transfer amount from the fee-adjusted balance change in `view`.
- - Correct the suggested change direction in `view` and keep that direction in the CLI.
  - Raise the replacement fee when `revoke` races a transaction already in the mempool.
  - Merge invoice-proof retrieval with the existing payment-proof API.
  - Confirm that invoice-proof retrieval excludes the transaction fee from the amount.
