@@ -410,6 +410,7 @@ pub fn parse_owner_api_args(
 	args: &ArgMatches,
 ) -> Result<(), ParseError> {
 	if let Some(port) = args.value_of("port") {
+		config.owner_api_listen_addr = None;
 		config.owner_api_listen_port = Some(port.parse().unwrap());
 	}
 	if args.is_present("run_foreign") {
