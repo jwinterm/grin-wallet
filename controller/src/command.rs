@@ -649,16 +649,30 @@ impl SlatepackOut {
 		serde_json::to_string_pretty(&self).unwrap()
 	}
 
-	pub fn print(&self, as_json: bool) -> () {
-		if !self.is_finalized {
-			if as_json {
-				println!("{}", self.as_json());
-			} else {
-				println!("{}", self);
-			}
+	fn render(&self, as_json: bool) -> String {
+		if as_json {
+			self.as_json()
 		} else {
-			println!("Transaction was broadcasted."); // TODO: as_json makes no sense here, fix later.
+			self.to_string()
 		}
+	}
+
+	pub fn print(&self, as_json: bool) {
+		println!("{}", self.render(as_json));
+	}
+}
+
+fn slatepack_recipient(dest: Option<&str>) -> Result<Option<SlatepackAddress>, Error> {
+	dest.map(SlatepackAddress::try_from)
+		.transpose()
+		.map_err(Error::from)
+}
+
+fn print_contract_status(message: &str, as_json: bool) {
+	if as_json {
+		eprintln!("{}", message);
+	} else {
+		println!("{}", message);
 	}
 }
 
@@ -666,7 +680,7 @@ pub fn print_slatepack<L, C, K>(
 	api: &mut Owner<L, C, K>,
 	keychain_mask: Option<&SecretKey>,
 	slate: &Slate,
-	counterparty_addr: &str,
+	counterparty_addr: Option<SlatepackAddress>,
 	out_file: Option<String>,
 	as_json: bool,
 ) -> Result<(), libwallet::Error>
@@ -678,7 +692,7 @@ where
 	// For now, we don't compact slates with sl.compact(). We first make them work without compaction.
 	// Writing the file, serializing and encrypting can all fail for ordinary reasons, so
 	// report them through the normal CLI error path rather than unwrapping.
-	let slate_out = prepare_slatepack(api, keychain_mask, &slate, &counterparty_addr, out_file)?;
+	let slate_out = prepare_slatepack(api, keychain_mask, &slate, counterparty_addr, out_file)?;
 	slate_out.print(as_json);
 	Ok(())
 }
@@ -687,7 +701,7 @@ pub fn prepare_slatepack<L, C, K>(
 	owner_api: &mut Owner<L, C, K>,
 	keychain_mask: Option<&SecretKey>,
 	slate: &Slate,
-	dest: &str,
+	dest: Option<SlatepackAddress>,
 	out_file_override: Option<String>,
 ) -> Result<SlatepackOut, libwallet::Error>
 where
@@ -699,17 +713,12 @@ where
 
 	// Output the slatepack file to stdout and to a file
 	let mut message = String::from("");
-	let mut address = None;
 	let mut tld = String::from("");
 	let wallet_inst = owner_api.wallet_inst.clone();
 	let config_path = owner_api.config_path();
 	controller::owner_single_use(wallet_inst, keychain_mask, config_path, |api, m| {
-		address = match SlatepackAddress::try_from(dest) {
-			Ok(a) => Some(a),
-			Err(_) => None,
-		};
 		// encrypt for recipient by default
-		let recipients = match address.clone() {
+		let recipients = match dest.clone() {
 			Some(a) => vec![a],
 			None => vec![],
 		};
@@ -739,7 +748,7 @@ where
 	let is_finalized = can_finalize(slate);
 
 	let slate_out = SlatepackOut {
-		is_encrypted: address.is_some(),
+		is_encrypted: dest.is_some(),
 		is_finalized: is_finalized,
 		out_file: out_file_name,
 		message: message,
@@ -1749,6 +1758,7 @@ where
 	K: keychain::Keychain + 'static,
 {
 	let contract_new_args = args.to_api_args()?;
+	let recipient = slatepack_recipient(args.counterparty_addr.as_deref())?;
 	let wallet_inst = owner_api.wallet_inst.clone();
 	let config_path = owner_api.config_path();
 	controller::owner_single_use(wallet_inst, keychain_mask, config_path, |api, m| {
@@ -1758,7 +1768,7 @@ where
 			api,
 			keychain_mask,
 			&slate,
-			args.counterparty_addr.as_deref().unwrap_or(""),
+			recipient.clone(),
 			args.outfile,
 			args.as_json,
 		)?;
@@ -1846,11 +1856,12 @@ where
 {
 	// Args for signing are just setup args
 	let contract_sign_args = args.to_api_args()?;
+	let recipient = slatepack_recipient(args.counterparty_addr.as_deref())?;
 	let wallet_inst = owner_api.wallet_inst.clone();
 	let config_path = owner_api.config_path();
 	controller::owner_single_use(wallet_inst, keychain_mask, config_path, |api, m| {
 		// Read the slatepack from stdin
-		println!("Paste slatepack:");
+		print_contract_status("Paste slatepack:", args.as_json);
 		let mut slatepack_msg = String::new();
 		io::stdin().read_line(&mut slatepack_msg).map_err(|e| {
 			libwallet::Error::GenericError(format!("Failed to read from stdin: {}", e))
@@ -1866,15 +1877,8 @@ where
 		)?;
 
 		// Encrypt the reply for --encrypt-for if given, else for the incoming slatepack's
-		// sender. If neither is known the incoming slate was plaintext, so reply plaintext
-		// (empty dest -> unencrypted slatepack).
-		let counterparty_addr = if let Some(addr) = args.counterparty_addr {
-			addr
-		} else if let Some(sender) = slatepack.sender {
-			String::try_from(&sender)?
-		} else {
-			String::new()
-		};
+		// sender. If neither is known the incoming slate was plaintext, so reply plaintext.
+		let recipient = recipient.clone().or(slatepack.sender);
 		let mut slate = owner::slate_from_slatepack_message(
 			api.wallet_inst.clone(),
 			keychain_mask,
@@ -1884,20 +1888,19 @@ where
 
 		slate = api.contract_sign(m, &slate, &contract_sign_args)?;
 
-		print_slatepack(
-			api,
-			keychain_mask,
-			&slate,
-			&counterparty_addr,
-			args.outfile,
-			args.as_json,
-		)?;
+		let slate_out = prepare_slatepack(api, keychain_mask, &slate, recipient, args.outfile)?;
 
-		if broadcast_tx {
-			let is_finalized = can_finalize(&slate);
-			if is_finalized {
-				api.post_tx(keychain_mask, &slate, true)?;
+		if broadcast_tx && slate_out.is_finalized {
+			if let Err(e) = api.post_tx(keychain_mask, &slate, true) {
+				slate_out.print(args.as_json);
+				return Err(e);
 			}
+			if args.as_json {
+				slate_out.print(true);
+			}
+			print_contract_status("Transaction was broadcasted.", args.as_json);
+		} else {
+			slate_out.print(args.as_json);
 		}
 
 		Ok(())
@@ -1970,7 +1973,7 @@ where
 		)?;
 		if let Some(slate) = slate_opt {
 			// A revoke has no counterparty, so write the replacement as plaintext.
-			let slate_out = prepare_slatepack(api, keychain_mask, &slate, "", None)?;
+			let slate_out = prepare_slatepack(api, keychain_mask, &slate, None, None)?;
 			println!("{}", slate_out);
 		} else {
 			println!("Contract revoked. No replacement transaction was created.");
@@ -2005,5 +2008,30 @@ mod send_tests {
 	fn max_estimate_uses_all() {
 		assert_eq!(estimate_strategies(true), &["all"]);
 		assert_eq!(estimate_strategies(false), &["smallest", "all"]);
+	}
+}
+
+#[cfg(test)]
+mod contract_tests {
+	use super::*;
+
+	#[test]
+	fn invalid_recipient() {
+		assert!(slatepack_recipient(Some("invalid")).is_err());
+		assert!(slatepack_recipient(None).unwrap().is_none());
+	}
+
+	#[test]
+	fn finalized_json() {
+		let output = SlatepackOut {
+			is_encrypted: false,
+			is_finalized: true,
+			out_file: "slatepack/test.S3.slatepack".to_string(),
+			message: "BEGINSLATEPACK. test. ENDSLATEPACK.".to_string(),
+		};
+
+		let value: serde_json::Value = serde_json::from_str(&output.render(true)).unwrap();
+		assert_eq!(value["is_finalized"], true);
+		assert_eq!(value["message"], output.message);
 	}
 }

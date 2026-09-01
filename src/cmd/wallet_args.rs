@@ -1194,6 +1194,18 @@ pub fn parse_contract_revoke_args(
 	Ok(command::ContractRevokeArgs { tx_id: tx_id })
 }
 
+pub fn contract_json_output(args: &ArgMatches<'_>) -> bool {
+	match args.subcommand() {
+		("contract", Some(contract_args)) => match contract_args.subcommand() {
+			("new", Some(command_args)) | ("sign", Some(command_args)) => {
+				command_args.is_present("as-json")
+			}
+			_ => false,
+		},
+		_ => false,
+	}
+}
+
 pub fn wallet_command<C, F>(
 	wallet_args: &ArgMatches,
 	config: GlobalWalletConfig,

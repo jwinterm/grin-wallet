@@ -65,7 +65,6 @@ Separating side effects until the 'save_step' part would make these functions mu
  - Preserve kernel features and their arguments across V4 and V5; see #793.
  - Preserve missing proof sender addresses and timestamps instead of replacing them with
    zero values.
- - Fix Slatepack output for invalid recipients, failed broadcasts and JSON output.
  - Choose the sender derivation path explicitly and keep encrypted outgoing files
    identifiable locally.
  - Decode the sender and slate from an incoming Slatepack in one pass.
