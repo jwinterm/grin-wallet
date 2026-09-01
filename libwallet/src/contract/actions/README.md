@@ -59,7 +59,6 @@ Separating side effects until the 'save_step' part would make these functions mu
  - Confirm that invoice-proof retrieval excludes the transaction fee from the amount.
  - Move payment-proof creation and verification onto `Slate` so it is versioned with the
    slate format.
- - Verify an invoice promise when paying and derive the receiver from the participants.
  - Bind and validate the contract proof type in the serialized proof.
  - Keep V5 when decoding Slatepacks through Owner RPC.
  - Preserve kernel features and their arguments across V4 and V5; see #793.

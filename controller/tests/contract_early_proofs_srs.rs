@@ -101,6 +101,10 @@ fn contract_early_proofs_srs_test_impl(test_dir: &'static str) -> Result<(), lib
 			let args = &ContractSetupArgsAPI {
 				..Default::default()
 			};
+			let mut tampered = slate.clone();
+			let proof = tampered.payment_proof.as_mut().unwrap();
+			proof.timestamp += Duration::from_secs(1);
+			assert!(api.contract_sign(m, &tampered, args).is_err());
 
 			slate = api.contract_sign(m, &slate, args)?;
 			Ok(())

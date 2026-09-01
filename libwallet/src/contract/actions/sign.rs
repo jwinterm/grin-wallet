@@ -79,10 +79,7 @@ where
 	let (mut sl, mut context) = setup::compute(w, keychain_mask, &mut sl, &setup_args)?;
 	// Add outputs to the slate, verify the payment proof and sign the slate
 	contract::slate::add_outputs(w, keychain_mask, &mut sl, &context)?;
-	if let Some(ref p) = sl.payment_proof {
-		contract::slate::verify_payment_proof(&sl, expected_net_change, &p.receiver_address)?;
-		// noop for the receiver
-	}
+	contract::slate::verify_invoice_promise(&sl, &w.keychain(keychain_mask)?, &context)?;
 
 	contract::slate::sign(w, keychain_mask, &mut sl, &mut context)?;
 	contract::slate::transition_state(&mut sl)?;

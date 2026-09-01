@@ -21,11 +21,11 @@ use crate::grin_keychain::Keychain;
 use crate::grin_util::secp::key::{PublicKey, SecretKey};
 use crate::slate::{Slate, SlateState};
 use crate::types::{Context, NodeClient};
+use crate::util::OnionV3Address;
 use crate::Error;
 
 use super::types::ProofArgs;
 use crate::contract::proofs::InvoiceProof;
-use ed25519_dalek::VerifyingKey as DalekPublicKey;
 
 /// Add payment proof data to slate, noop for sender
 pub fn add_payment_proof<C, K>(
@@ -55,19 +55,47 @@ where
 	Ok(())
 }
 
-/// Verify payment proof signature
-pub fn verify_payment_proof(
+/// Verify the receiver's invoice promise before paying
+pub fn verify_invoice_promise<K>(
 	slate: &Slate,
-	net_change: i64,
-	recipient_address: &DalekPublicKey,
-) -> Result<(), Error> {
+	keychain: &K,
+	context: &Context,
+) -> Result<(), Error>
+where
+	K: Keychain,
+{
 	// FUTURE: move proof verification onto Slate itself so it can be versioned (slate.verify_payment_proof_sig()).
-	debug!("contract::slate::verify_payment_proof => called");
-	if net_change > 0 && slate.payment_proof.is_some() {
-		let invoice_proof = InvoiceProof::from_slate(&slate, 1, None)?;
-		invoice_proof.verify_promise_signature(&recipient_address)?;
+	debug!("contract::slate::verify_invoice_promise => called");
+	if context.get_net_change()? >= 0 {
+		return Ok(());
 	}
-	Ok(())
+	let payment_proof = match slate.payment_proof.as_ref() {
+		Some(proof) => proof,
+		None => return Ok(()),
+	};
+	if slate.participant_data.len() != 2 {
+		return Err(Error::GenericError(format!(
+			"Expected 2 participants for an invoice promise, found {}",
+			slate.participant_data.len()
+		)));
+	}
+
+	let payer_index = slate.find_index_matching_context(keychain, context)?;
+	let receiver_index = slate
+		.participant_data
+		.iter()
+		.enumerate()
+		.find_map(|(index, _)| (index != payer_index).then_some(index))
+		.ok_or_else(|| Error::GenericError("Invoice promise has no receiver".to_string()))?;
+	let derivation_index = context.payment_proof_derivation_index.unwrap_or(0);
+	let sender_key = crate::address::address_from_derivation_path(
+		keychain,
+		&context.parent_key_id,
+		derivation_index,
+	)?;
+	let sender_address = OnionV3Address::from_private(&sender_key.0)?.to_ed25519()?;
+	let invoice_proof = InvoiceProof::from_slate(slate, receiver_index, Some(sender_address))?;
+	invoice_proof.verify_promise_signature(&payment_proof.receiver_address)
 }
 
 /// Adds inputs and outputs to slate
