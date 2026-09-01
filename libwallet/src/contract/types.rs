@@ -95,7 +95,7 @@ pub enum ProofType {
 pub struct ProofArgs {
 	/// If net change is positive during this step, whether to suppress the creation of payment proof
 	pub suppress_proof: bool,
-	/// Requested proof type. Contract proofs currently always use the invoice type.
+	/// Requested proof type. Only invoice proofs are currently supported.
 	pub proof_type: ProofType,
 	/// Sender address (required at some stage, may not necessarily be in slate so can be provided explicitly)
 	#[serde(with = "dalek_ser::option_dalek_pubkey_serde")]
@@ -108,7 +108,7 @@ impl Default for ProofArgs {
 			// Proofs are opt-in (#729): a `false` default made the receiver build an
 			// invoice promise with no sender address, failing with NoSenderAddressProvided.
 			suppress_proof: true,
-			proof_type: ProofType::Legacy,
+			proof_type: ProofType::Invoice,
 			sender_address: None,
 		}
 	}
@@ -211,4 +211,6 @@ impl Default for ContractView {
 pub struct ContractRevokeArgsAPI {
 	/// Tx id to cancel
 	pub tx_id: u32,
+	/// Account containing the transaction, or the active account when omitted
+	pub src_acct_name: Option<String>,
 }

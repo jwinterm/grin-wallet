@@ -17,7 +17,7 @@
 //! by legacy transactions
 
 use crate::backend::WalletBackend;
-use crate::contract::types::ProofArgs;
+use crate::contract::types::{ProofArgs, ProofType};
 use crate::grin_core::libtx::aggsig;
 use crate::grin_core::libtx::secp_ser;
 use crate::grin_core::ser as grin_ser;
@@ -38,6 +38,15 @@ use ed25519_dalek::SigningKey as DalekSecretKey;
 use ed25519_dalek::VerifyingKey as DalekPublicKey;
 use ed25519_dalek::{Signer, Verifier};
 use grin_util::secp::Message;
+
+pub(super) fn check_proof_type(proof_type: &ProofType) -> Result<(), Error> {
+	match proof_type {
+		ProofType::Invoice => Ok(()),
+		_ => Err(Error::GenericError(
+			"Only invoice contract proofs are supported".to_string(),
+		)),
+	}
+}
 
 /// All elements required to validate a proof within a single struct
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
@@ -368,7 +377,7 @@ impl serde::Serialize for InvoiceProofBin {
 }
 
 /// Adds all info needed for a payment proof to a slate, complete with signed recipient data
-pub fn add_payment_proof<C, K>(
+pub(super) fn add_payment_proof<C, K>(
 	wallet: &mut WalletBackend<C, K>,
 	keychain_mask: Option<&SecretKey>,
 	slate: &mut Slate,
@@ -379,8 +388,6 @@ where
 	C: NodeClient,
 	K: Keychain,
 {
-	// Invoice (type 1) is the only contract proof type today; other types are future
-	// work tied to the early-payment-proof RFC.
 	let (invoice_proof, promise_signature, receiver_address) =
 		generate_invoice_signature(wallet, keychain_mask, slate, context, proof_args)?;
 	// Carry over the timestamp the promise signature was made over rather than reading
@@ -437,6 +444,13 @@ where
 mod tests {
 	use super::*;
 	use crate::slate_versions::tests::populate_test_slate;
+
+	#[test]
+	fn rejects_unsupported_proofs() {
+		assert!(check_proof_type(&ProofType::Invoice).is_ok());
+		assert!(check_proof_type(&ProofType::Legacy).is_err());
+		assert!(check_proof_type(&ProofType::SenderNonce).is_err());
+	}
 
 	#[test]
 	fn ser_invoice_proof_bin() -> Result<(), Error> {

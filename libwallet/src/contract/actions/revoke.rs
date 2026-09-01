@@ -16,7 +16,7 @@
 use crate::backend::WalletBackend;
 use crate::blake2::blake2b::blake2b;
 use crate::contract::types::{ContractRevokeArgsAPI, ContractSetupArgsAPI, OutputSelectionArgs};
-use crate::contract::{new, sign};
+use crate::contract::{new, sign, utils};
 use crate::error::Error;
 use crate::grin_keychain::Keychain;
 use crate::grin_util::secp::key::SecretKey;
@@ -55,6 +55,7 @@ where
 	// cannot be built until the input is unlocked.
 	// FUTURE: we may want to boost fees if we notice the original tx in the mempool.
 	let tx_id = args.tx_id;
+	let parent_key_id = utils::parent_key_for(w, args.src_acct_name.as_ref())?;
 
 	// Inputs we contributed to tx_id that are still recoverable. Locked => the original tx
 	// is still active; Unspent => a previous revoke cancelled it but the self-spend did not
@@ -65,44 +66,39 @@ where
 		.iter()?
 		.filter(|out| {
 			out.tx_log_entry == Some(tx_id)
+				&& out.root_key_id == parent_key_id
 				&& (out.status == OutputStatus::Locked || out.status == OutputStatus::Unspent)
 		})
 		.collect::<Vec<OutputData>>();
 
-	// Determine the account that owns the inputs so the cancel and the self-spend target it
-	// rather than whatever account happens to be active.
-	let parent_key_id = match my_contributed_inputs.first() {
-		Some(out) => out.root_key_id.clone(),
-		None => w.parent_key_id(),
-	};
-
 	// Cancel the original tx only if it is still in a cancellable state. On a resumed revoke
 	// it is already a *Cancelled type (and the inputs are Unspent), so we skip straight to
 	// re-spending them.
-	let revoked = w.get_tx_log_entry_by_id(parent_key_id.clone(), tx_id)?;
-	let revoked_slate_id = revoked.as_ref().and_then(|e| e.tx_slate_id);
-	let needs_cancel = match revoked.as_ref() {
-		Some(e) => matches!(
-			e.tx_type,
-			TxLogEntryType::TxSent
-				| TxLogEntryType::TxReceived
-				| TxLogEntryType::TxReverted
-				| TxLogEntryType::TxSelfSpend
-		),
-		None => false,
-	};
+	let revoked = w
+		.get_tx_log_entry_by_id(parent_key_id.clone(), tx_id)?
+		.ok_or_else(|| Error::NotFoundErr(format!("Transaction {}", tx_id)))?;
+	let revoked_slate_id = revoked.tx_slate_id;
+	let needs_cancel = matches!(
+		revoked.tx_type,
+		TxLogEntryType::TxSent
+			| TxLogEntryType::TxReceived
+			| TxLogEntryType::TxReverted
+			| TxLogEntryType::TxSelfSpend
+	);
 	if needs_cancel {
 		// 1. Unlock the inputs by cancelling the original tx.
 		tx::cancel_tx(&mut *w, keychain_mask, &parent_key_id, Some(tx_id), None)?;
 		// Drop the canceled slate's private context if one still exists (signing already
 		// deletes it).
 		if let Some(slate_id) = revoked_slate_id {
-			if w.get_private_context(keychain_mask, slate_id.as_bytes())
-				.is_ok()
-			{
-				let mut batch = w.batch(keychain_mask)?;
-				batch.delete_private_context(slate_id.as_bytes())?;
-				batch.commit()?;
+			match w.get_private_context(keychain_mask, slate_id.as_bytes()) {
+				Ok(_) => {
+					let mut batch = w.batch(keychain_mask)?;
+					batch.delete_private_context(slate_id.as_bytes())?;
+					batch.commit()?;
+				}
+				Err(Error::NotFoundErr(_)) => {}
+				Err(e) => return Err(e),
 			}
 		}
 	}

@@ -1,7 +1,8 @@
 # Wallet contracts
 
 Contracts use the same flow for standard sends and invoice transactions. Signing is kept
-as an explicit step, so both sides can check the transaction before they sign it.
+as an explicit step. Each side can check the slate it receives and its own contribution,
+but not commitments added by the other side later in the flow.
 
 A two-party contract is `new`, `sign`, `sign`. A self-spend is `new`, `sign`. There is no
 separate `setup` command. Setup is done by `new`, or by the first `sign` when needed.
@@ -46,7 +47,8 @@ inputs, outputs and fees, and it cannot find a contract by id.
 self-spend of that input. The caller still has to post it, and either transaction can win
 if the original is already in the mempool. When the wallet added no input there is no
 replacement transaction. The replacement does not use a higher fee. An interrupted
-`revoke` can be run again.
+`revoke` can be run again. Transaction ids belong to an account, so the CLI uses the
+account selected with `--account`.
 
 ## Current limitations
 

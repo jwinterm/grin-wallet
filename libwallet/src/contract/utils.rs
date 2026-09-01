@@ -210,12 +210,13 @@ where
 	let is_step2 = !context.log_id.is_some() && is_signed;
 
 	let mut tx_log_entry = {
-		if !context.log_id.is_some() {
+		if context.log_id.is_none() {
 			// We create a new entry with log_id=0 and but replace it with the real id before committing
 			create_tx_log_entry(slate, context.get_net_change()?, parent_key_id.clone(), 0)?
 		} else {
-			w.get_tx_log_entry_by_id(parent_key_id.clone(), context.log_id.unwrap())?
-				.unwrap()
+			let log_id = context.log_id.unwrap();
+			w.get_tx_log_entry_by_id(parent_key_id.clone(), log_id)?
+				.ok_or_else(|| Error::NotFoundErr(format!("Transaction log entry {}", log_id)))?
 		}
 	};
 
@@ -299,12 +300,14 @@ where
 	// gone so the nonce can never be reused. It is deleted in the is_signed && !is_step2
 	// branch above; verify the deletion actually took effect.
 	if is_signed && !is_step2 {
-		if w.get_private_context(keychain_mask, slate.id.as_bytes())
-			.is_ok()
-		{
-			return Err(Error::GenericError(
-				"signing context was not removed after signing".into(),
-			));
+		match w.get_private_context(keychain_mask, slate.id.as_bytes()) {
+			Err(Error::NotFoundErr(_)) => {}
+			Err(e) => return Err(e),
+			Ok(_) => {
+				return Err(Error::GenericError(
+					"signing context was not removed after signing".into(),
+				));
+			}
 		}
 	}
 
@@ -360,17 +363,15 @@ where
 {
 	// If we have a transaction log entry for that slatepack that has a kernel value, then
 	// we have already signed this slate.
-	let tx = w
-		.tx_log_iter()?
-		.flatten()
-		.find(|t| t.tx_slate_id.is_some() && t.tx_slate_id.unwrap() == slate_id);
-	let already_signed = tx.is_some() && tx.unwrap().kernel_excess.is_some();
-	if already_signed {
-		debug!("contract::utils::verify_not_signed => The slate has already been signed.");
-		return Err(Error::GenericError(
-			format!("Slate with id:{} has already been signed.", slate_id).into(),
-		)
-		.into());
+	for tx in w.tx_log_iter()? {
+		let tx = tx?;
+		if tx.tx_slate_id == Some(slate_id) && tx.kernel_excess.is_some() {
+			debug!("contract::utils::verify_not_signed => The slate has already been signed.");
+			return Err(Error::GenericError(format!(
+				"Slate with id:{} has already been signed.",
+				slate_id
+			)));
+		}
 	}
 
 	Ok(())

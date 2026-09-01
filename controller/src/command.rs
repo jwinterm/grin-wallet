@@ -1961,12 +1961,19 @@ where
 	let wallet_inst = owner_api.wallet_inst.clone();
 	let config_path = owner_api.config_path();
 	controller::owner_single_use(wallet_inst, keychain_mask, config_path, |api, m| {
-		let slate_opt = api.contract_revoke(m, &ContractRevokeArgsAPI { tx_id: args.tx_id })?;
-		// TODO: replace dest="nope" with our own address and add --as-json support
-		if slate_opt.is_some() {
-			let slate_out =
-				prepare_slatepack(api, keychain_mask, &slate_opt.unwrap(), "nope", None)?;
+		let slate_opt = api.contract_revoke(
+			m,
+			&ContractRevokeArgsAPI {
+				tx_id: args.tx_id,
+				src_acct_name: None,
+			},
+		)?;
+		if let Some(slate) = slate_opt {
+			// A revoke has no counterparty, so write the replacement as plaintext.
+			let slate_out = prepare_slatepack(api, keychain_mask, &slate, "", None)?;
 			println!("{}", slate_out);
+		} else {
+			println!("Contract revoked. No replacement transaction was created.");
 		}
 
 		Ok(())

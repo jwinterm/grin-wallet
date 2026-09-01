@@ -31,16 +31,48 @@ mod common;
 use common::{clean_output_dir, create_wallets, setup};
 use std::path::PathBuf;
 
-/// Revoke a contract while a different account is active than the one that locked
-/// the inputs. The cancel + self-spend must still target the inputs' account.
+/// Revoke the transaction in the requested account when two accounts share a transaction id.
 fn contract_revoke_other_account_impl(test_dir: &'static str) -> Result<(), libwallet::Error> {
-	// One wallet: empty "default" account plus a funded "account1".
+	// Both accounts are funded equally, so their contract transactions get the same id.
 	let (wallets, _chain, stopper, _bh) =
-		create_wallets(vec![vec![("default", 0), ("account1", 4)]], test_dir).unwrap();
+		create_wallets(vec![vec![("default", 4), ("account1", 4)]], test_dir).unwrap();
 	let wallet1 = wallets[0].0.clone();
 	let mask1 = wallets[0].1.as_ref();
 
-	// Send (with early lock) from account1, locking one of its inputs.
+	// Create an early-locked contract in the default account.
+	wallet::controller::owner_single_use(
+		wallet1.clone(),
+		mask1,
+		PathBuf::from(test_dir),
+		|api, m| {
+			api.contract_new(
+				m,
+				&ContractNewArgsAPI {
+					setup_args: ContractSetupArgsAPI {
+						net_change: Some(-1_000_000_000),
+						num_participants: 2,
+						add_outputs: true,
+						..Default::default()
+					},
+					..Default::default()
+				},
+			)?;
+			Ok(())
+		},
+	)?;
+	let mut default_tx_id = 0;
+	wallet::controller::owner_single_use(
+		wallet1.clone(),
+		mask1,
+		PathBuf::from(test_dir),
+		|api, m| {
+			let (_, txs) = api.retrieve_txs(m, true, None, None, None)?;
+			default_tx_id = txs.last().unwrap().id;
+			Ok(())
+		},
+	)?;
+
+	// Create another early-locked contract in account1.
 	{
 		wallet_inst!(wallet1, w);
 		w.set_parent_key_id_by_name("account1")?;
@@ -80,6 +112,7 @@ fn contract_revoke_other_account_impl(test_dir: &'static str) -> Result<(), libw
 			Ok(())
 		},
 	)?;
+	assert_eq!(tx_id, default_tx_id);
 
 	// Switch the active account to "default" — different from the inputs' account.
 	{
@@ -87,15 +120,20 @@ fn contract_revoke_other_account_impl(test_dir: &'static str) -> Result<(), libw
 		w.set_parent_key_id_by_name("default")?;
 	}
 
-	// Revoke. With the active account wrong, this must still cancel + self-spend the
-	// account1 transaction (it derives the account from the locked input).
+	// Revoke account1 while the default account is active.
 	let mut revoked = None;
 	wallet::controller::owner_single_use(
 		wallet1.clone(),
 		mask1,
 		PathBuf::from(test_dir),
 		|api, m| {
-			revoked = api.contract_revoke(m, &ContractRevokeArgsAPI { tx_id })?;
+			revoked = api.contract_revoke(
+				m,
+				&ContractRevokeArgsAPI {
+					tx_id,
+					src_acct_name: Some("account1".to_string()),
+				},
+			)?;
 			Ok(())
 		},
 	)?;
@@ -103,6 +141,21 @@ fn contract_revoke_other_account_impl(test_dir: &'static str) -> Result<(), libw
 		revoked.is_some(),
 		"revoke should produce a self-spend slate"
 	);
+
+	// The default account's transaction is still locked.
+	wallet::controller::owner_single_use(
+		wallet1.clone(),
+		mask1,
+		PathBuf::from(test_dir),
+		|api, m| {
+			let (_, outs) = api.retrieve_outputs(m, true, false, None)?;
+			assert!(outs.iter().any(|o| {
+				o.output.status == OutputStatus::Locked
+					&& o.output.tx_log_entry == Some(default_tx_id)
+			}));
+			Ok(())
+		},
+	)?;
 
 	// Back on account1: the original tx is cancelled and no input is left locked.
 	{
@@ -212,7 +265,13 @@ fn contract_revoke_resume_impl(test_dir: &'static str) -> Result<(), libwallet::
 		mask1,
 		PathBuf::from(test_dir),
 		|api, m| {
-			revoked = api.contract_revoke(m, &ContractRevokeArgsAPI { tx_id })?;
+			revoked = api.contract_revoke(
+				m,
+				&ContractRevokeArgsAPI {
+					tx_id,
+					src_acct_name: None,
+				},
+			)?;
 			Ok(())
 		},
 	)?;

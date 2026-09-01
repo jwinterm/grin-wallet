@@ -42,6 +42,9 @@ where
 {
 	// FUTURE: move proof handling onto Slate itself so it can be versioned (slate.add_payment_proof_data()).
 	debug!("contract::slate::add_payment_proof => called");
+	if !proof_args.suppress_proof {
+		super::proofs::check_proof_type(&proof_args.proof_type)?;
+	}
 	// If we're a recipient, generate proof unless explicity told not to
 	if let Some(ref c) = net_change {
 		if *c > 0 && !proof_args.suppress_proof && slate.payment_proof.is_none() {
