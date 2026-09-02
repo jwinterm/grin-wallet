@@ -2855,45 +2855,39 @@ macro_rules! doctest_helper_json_rpc_owner_assert_response {
 		// json response.
 		// In order to prevent leaking tempdirs, This function should not panic.
 
-		// These cause LMDB to run out of disk space on CircleCI
-		// disable for now on windows
-		// TODO: Fix properly
-		#[cfg(not(target_os = "windows"))]
-		{
-			use grin_wallet_api::run_doctest_owner;
-			use serde_json;
-			use serde_json::Value;
-			use tempfile::tempdir;
+		use grin_wallet_api::run_doctest_owner;
+		use serde_json;
+		use serde_json::Value;
+		use tempfile::tempdir;
 
-			let dir = tempdir().map_err(|e| format!("{:#?}", e)).unwrap();
-			let dir = dir
-				.path()
-				.to_str()
-				.ok_or("Failed to convert tmpdir path to string.".to_owned())
-				.unwrap();
-
-			let request_val: Value = serde_json::from_str($request).unwrap();
-			let expected_response: Value = serde_json::from_str($expected_response).unwrap();
-
-			let response = run_doctest_owner(
-				request_val,
-				dir,
-				$blocks_to_mine,
-				$perform_tx,
-				$lock_tx,
-				$finalize_tx,
-				$payment_proof,
-			)
-			.unwrap()
+		let dir = tempdir().map_err(|e| format!("{:#?}", e)).unwrap();
+		let dir = dir
+			.path()
+			.to_str()
+			.ok_or("Failed to convert tmpdir path to string.".to_owned())
 			.unwrap();
 
-			if response != expected_response {
-				panic!(
-					"(left != right) \nleft: {}\nright: {}",
-					serde_json::to_string_pretty(&response).unwrap(),
-					serde_json::to_string_pretty(&expected_response).unwrap()
-				);
-			}
+		let request_val: Value = serde_json::from_str($request).unwrap();
+		let expected_response: Value = serde_json::from_str($expected_response).unwrap();
+
+		let response = run_doctest_owner(
+			request_val,
+			dir,
+			$blocks_to_mine,
+			$perform_tx,
+			$lock_tx,
+			$finalize_tx,
+			$payment_proof,
+		)
+		.unwrap()
+		.unwrap();
+
+		if response != expected_response {
+			panic!(
+				"(left != right) \nleft: {}\nright: {}",
+				serde_json::to_string_pretty(&response).unwrap(),
+				serde_json::to_string_pretty(&expected_response).unwrap()
+			);
 		}
 	};
 }

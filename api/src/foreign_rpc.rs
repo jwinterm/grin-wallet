@@ -344,8 +344,6 @@ fn test_check_middleware(
 	_node_version_info: Option<NodeVersionInfo>,
 	_slate: Option<&Slate>,
 ) -> Result<(), libwallet::Error> {
-	// TODO: Implement checks
-	// return Err(Error::GenericError("Test Rejection".into()))?
 	Ok(())
 }
 
