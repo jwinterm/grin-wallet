@@ -2072,6 +2072,7 @@ where
 	pub fn delete_wallet(&self, name: Option<&str>) -> Result<(), Error> {
 		let mut w_lock = self.wallet_inst.lock();
 		let lc = w_lock.lc_provider()?;
+		lc.close_wallet(name)?;
 		lc.delete_wallet(name)
 	}
 
