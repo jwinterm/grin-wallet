@@ -259,6 +259,7 @@ where
 	let net_change = args.setup_args.net_change.ok_or_else(|| {
 		Error::GenericError("Contract requires a net change (--send or --receive)".to_string())
 	})?;
+	// The foreign API only handles the receiving side.
 	if net_change <= 0 {
 		return Err(Error::GenericError(
 			"Can't create a non-receiving contract from a foreign API.".to_string(),
@@ -281,6 +282,7 @@ where
 	let net_change = args.net_change.ok_or_else(|| {
 		Error::GenericError("Contract requires a net change (--send or --receive)".to_string())
 	})?;
+	// The foreign API only handles the receiving side.
 	if net_change <= 0 {
 		return Err(Error::GenericError(
 			"Can't sign a non-receiving contract from a foreign API.".to_string(),

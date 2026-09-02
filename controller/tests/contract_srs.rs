@@ -23,7 +23,7 @@ use grin_core::core::transaction::{CommitWrapper, Input, Inputs, OutputFeatures,
 use impls::test_framework::{self};
 use libwallet::contract::my_fee_contribution;
 use libwallet::contract::types::{ContractNewArgsAPI, ContractSetupArgsAPI, OwnCommitmentStatus};
-use libwallet::{Slate, SlateState, TxLogEntryType};
+use libwallet::{NodeVersionInfo, Slate, SlateState, TxLogEntryType};
 use std::sync::atomic::Ordering;
 use std::thread;
 use std::time::Duration;
@@ -32,6 +32,21 @@ use std::time::Duration;
 mod common;
 use common::{clean_output_dir, create_wallets, setup};
 use std::path::PathBuf;
+
+fn reject_contract_slate(
+	method: grin_wallet_api::ForeignCheckMiddlewareFn,
+	_node_version: Option<NodeVersionInfo>,
+	slate: Option<&Slate>,
+) -> Result<(), libwallet::Error> {
+	assert!(matches!(
+		method,
+		grin_wallet_api::ForeignCheckMiddlewareFn::ContractSign
+	));
+	assert!(slate.is_some());
+	Err(libwallet::Error::GenericError(
+		"Contract rejected by middleware".to_string(),
+	))
+}
 
 /// contract SRS flow
 fn contract_srs_tx_impl(test_dir: &'static str) -> Result<(), libwallet::Error> {
@@ -42,8 +57,9 @@ fn contract_srs_tx_impl(test_dir: &'static str) -> Result<(), libwallet::Error> 
 	let send_mask = wallets[0].1.as_ref();
 	let recv_wallet = wallets[1].0.clone();
 	let recv_mask = wallets[1].1.as_ref();
+	let participant_fee = my_fee_contribution(1, 1, 1, 2)?.fee();
 
-	let mut slate = Slate::blank(0, true); // this gets overriden below
+	let mut slate = Slate::blank(0, false); // this gets overriden below
 
 	wallet::controller::owner_single_use(
 		send_wallet.clone(),
@@ -64,19 +80,26 @@ fn contract_srs_tx_impl(test_dir: &'static str) -> Result<(), libwallet::Error> 
 		},
 	)?;
 	assert_eq!(slate.state, SlateState::Standard1);
+	common::assert_basic_contract_slate(
+		&slate,
+		common::ExpectedContractSlate {
+			amount: 5_000_000_000,
+			fee: participant_fee,
+			inputs: 0,
+			outputs: 0,
+			kernels: 0,
+			num_participants: 2,
+			participant_data: 1,
+			signatures: 0,
+		},
+	);
 
 	wallet::controller::owner_single_use(
 		recv_wallet.clone(),
 		recv_mask,
 		PathBuf::from(test_dir),
 		|api, m| {
-			let child_index = {
-				let mut wallet = api.wallet_inst.lock();
-				let wallet = wallet.lc_provider()?.wallet_inst()?;
-				let parent = wallet.parent_key_id();
-				wallet.current_child_index(&parent)?
-			};
-			let (_, txs) = api.retrieve_txs(m, false, None, None, None)?;
+			let progress = common::wallet_progress(api, m)?;
 			let mut invalid = slate.clone();
 			invalid.state = SlateState::Unknown;
 			let err = api
@@ -95,15 +118,7 @@ fn contract_srs_tx_impl(test_dir: &'static str) -> Result<(), libwallet::Error> 
 				libwallet::Error::GenericError(ref msg)
 					if msg == "Cannot advance a contract slate in state UN"
 			));
-			let current_child_index = {
-				let mut wallet = api.wallet_inst.lock();
-				let wallet = wallet.lc_provider()?.wallet_inst()?;
-				let parent = wallet.parent_key_id();
-				wallet.current_child_index(&parent)?
-			};
-			let (_, current_txs) = api.retrieve_txs(m, false, None, None, None)?;
-			assert_eq!(current_child_index, child_index);
-			assert_eq!(current_txs.len(), txs.len());
+			assert_eq!(common::wallet_progress(api, m)?, progress);
 
 			let wrong_args = ContractSetupArgsAPI {
 				selection_args: common::contract_selection_args(),
@@ -117,41 +132,82 @@ fn contract_srs_tx_impl(test_dir: &'static str) -> Result<(), libwallet::Error> 
 					if msg == "Expected net change 5000000000, got -5000000000 (did you mean --receive instead of --send?)"
 			));
 
-			// Receive wallet calls --receive=5
-			let args = &mut ContractSetupArgsAPI {
-				selection_args: common::contract_selection_args(),
-				net_change: Some(5_000_000_000),
-				..Default::default()
-			};
-			let incoming = slate.clone();
-			slate = api.contract_sign(m, &incoming, args)?;
+			Ok(())
+		},
+	)?;
 
-			let child_index = {
-				let mut wallet = api.wallet_inst.lock();
-				let wallet = wallet.lc_provider()?.wallet_inst()?;
-				let parent = wallet.parent_key_id();
-				wallet.current_child_index(&parent)?
+	// Receive wallet signs through the foreign API.
+	let args = ContractSetupArgsAPI {
+		selection_args: common::contract_selection_args(),
+		net_change: Some(5_000_000_000),
+		..Default::default()
+	};
+	let incoming = slate.clone();
+	{
+		let api = grin_wallet_api::Foreign::new(
+			recv_wallet.clone(),
+			PathBuf::from(test_dir),
+			recv_mask.cloned(),
+			Some(reject_contract_slate),
+			false,
+		);
+		let err = api.contract_sign(&incoming, &args).unwrap_err();
+		assert!(matches!(
+			err,
+			libwallet::Error::GenericError(ref msg)
+				if msg == "Contract rejected by middleware"
+		));
+	}
+	wallet::controller::foreign_single_use(
+		recv_wallet.clone(),
+		PathBuf::from(test_dir),
+		recv_mask.cloned(),
+		|api| {
+			let rejected = ContractSetupArgsAPI {
+				net_change: Some(-5_000_000_000),
+				..args.clone()
 			};
-			let (_, txs) = api.retrieve_txs(m, false, None, None, None)?;
-			let err = api.contract_sign(m, &incoming, args).unwrap_err();
+			let err = api.contract_sign(&incoming, &rejected).unwrap_err();
+			assert!(matches!(
+				err,
+				libwallet::Error::GenericError(ref msg)
+					if msg == "Can't sign a non-receiving contract from a foreign API."
+			));
+			slate = api.contract_sign(&incoming, &args)?;
+			Ok(())
+		},
+	)?;
+
+	wallet::controller::owner_single_use(
+		recv_wallet.clone(),
+		recv_mask,
+		PathBuf::from(test_dir),
+		|api, m| {
+			let progress = common::wallet_progress(api, m)?;
+			let err = api.contract_sign(m, &incoming, &args).unwrap_err();
 			assert!(matches!(
 				err,
 				libwallet::Error::GenericError(ref msg)
 					if msg == &format!("Slate with id:{} has already been signed.", incoming.id)
 			));
-			let current_child_index = {
-				let mut wallet = api.wallet_inst.lock();
-				let wallet = wallet.lc_provider()?.wallet_inst()?;
-				let parent = wallet.parent_key_id();
-				wallet.current_child_index(&parent)?
-			};
-			let (_, current_txs) = api.retrieve_txs(m, false, None, None, None)?;
-			assert_eq!(current_child_index, child_index);
-			assert_eq!(current_txs.len(), txs.len());
+			assert_eq!(common::wallet_progress(api, m)?, progress);
 			Ok(())
 		},
 	)?;
 	assert_eq!(slate.state, SlateState::Standard2);
+	common::assert_basic_contract_slate(
+		&slate,
+		common::ExpectedContractSlate {
+			amount: 5_000_000_000,
+			fee: 2 * participant_fee,
+			inputs: 1,
+			outputs: 1,
+			kernels: 1,
+			num_participants: 2,
+			participant_data: 2,
+			signatures: 1,
+		},
+	);
 	wallet::controller::owner_single_use(
 		recv_wallet.clone(),
 		recv_mask,
@@ -186,12 +242,7 @@ fn contract_srs_tx_impl(test_dir: &'static str) -> Result<(), libwallet::Error> 
 			let (_, outputs) = api.retrieve_outputs(m, false, false, None)?;
 			let tx = slate.tx_or_err()?;
 			let input_commits = Vec::<CommitWrapper>::from(&tx.inputs());
-			let child_index = {
-				let mut wallet = api.wallet_inst.lock();
-				let wallet = wallet.lc_provider()?.wallet_inst()?;
-				let parent = wallet.parent_key_id();
-				wallet.current_child_index(&parent)?
-			};
+			let progress = common::wallet_progress(api, m)?;
 			let mut changed = slate.clone();
 			changed.tx = Some(
 				Transaction::new(
@@ -212,13 +263,7 @@ fn contract_srs_tx_impl(test_dir: &'static str) -> Result<(), libwallet::Error> 
 			}
 			let view = api.contract_view(m, &changed)?;
 			assert_eq!(view.own_commitment_status, OwnCommitmentStatus::Unknown);
-			let current_child_index = {
-				let mut wallet = api.wallet_inst.lock();
-				let wallet = wallet.lc_provider()?.wallet_inst()?;
-				let parent = wallet.parent_key_id();
-				wallet.current_child_index(&parent)?
-			};
-			assert_eq!(current_child_index, child_index);
+			assert_eq!(common::wallet_progress(api, m)?, progress);
 
 			let (output, pos) = outputs
 				.iter()
@@ -333,6 +378,19 @@ fn contract_srs_tx_impl(test_dir: &'static str) -> Result<(), libwallet::Error> 
 		},
 	)?;
 	assert_eq!(slate.state, SlateState::Standard3);
+	common::assert_basic_contract_slate(
+		&slate,
+		common::ExpectedContractSlate {
+			amount: 5_000_000_000,
+			fee: 2 * participant_fee,
+			inputs: 2,
+			outputs: 2,
+			kernels: 1,
+			num_participants: 2,
+			participant_data: 2,
+			signatures: 2,
+		},
+	);
 	wallet::controller::owner_single_use(
 		recv_wallet.clone(),
 		recv_mask,

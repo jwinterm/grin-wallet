@@ -22,7 +22,7 @@ use grin_wallet_libwallet as libwallet;
 use impls::test_framework::{self};
 use libwallet::contract::my_fee_contribution;
 use libwallet::contract::types::{ContractNewArgsAPI, ContractSetupArgsAPI};
-use libwallet::{Slate, SlateState, TxLogEntryType};
+use libwallet::{NodeVersionInfo, Slate, SlateState, TxLogEntryType};
 use std::sync::atomic::Ordering;
 use std::thread;
 use std::time::Duration;
@@ -31,6 +31,21 @@ use std::time::Duration;
 mod common;
 use common::{clean_output_dir, create_wallets, setup};
 use std::path::PathBuf;
+
+fn reject_contract_new(
+	method: grin_wallet_api::ForeignCheckMiddlewareFn,
+	_node_version: Option<NodeVersionInfo>,
+	slate: Option<&Slate>,
+) -> Result<(), libwallet::Error> {
+	assert!(matches!(
+		method,
+		grin_wallet_api::ForeignCheckMiddlewareFn::ContractNew
+	));
+	assert!(slate.is_none());
+	Err(libwallet::Error::GenericError(
+		"Contract rejected by middleware".to_string(),
+	))
+}
 
 /// contract RSR flow
 fn contract_rsr_tx_impl(test_dir: &'static str) -> Result<(), libwallet::Error> {
@@ -41,28 +56,68 @@ fn contract_rsr_tx_impl(test_dir: &'static str) -> Result<(), libwallet::Error> 
 	let send_mask = wallets[0].1.as_ref();
 	let recv_wallet = wallets[1].0.clone();
 	let recv_mask = wallets[1].1.as_ref();
+	let participant_fee = my_fee_contribution(1, 1, 1, 2)?.fee();
 
-	let mut slate = Slate::blank(0, true); // this gets overriden below
-
-	wallet::controller::owner_single_use(
+	// Receive wallet initiates an invoice transaction through the foreign API.
+	let args = &ContractNewArgsAPI {
+		setup_args: ContractSetupArgsAPI {
+			selection_args: common::contract_selection_args(),
+			net_change: Some(5_000_000_000),
+			..Default::default()
+		},
+	};
+	{
+		let api = grin_wallet_api::Foreign::new(
+			recv_wallet.clone(),
+			PathBuf::from(test_dir),
+			recv_mask.cloned(),
+			Some(reject_contract_new),
+			false,
+		);
+		let err = api.contract_new(args).unwrap_err();
+		assert!(matches!(
+			err,
+			libwallet::Error::GenericError(ref msg)
+				if msg == "Contract rejected by middleware"
+		));
+	}
+	let mut slate = None;
+	wallet::controller::foreign_single_use(
 		recv_wallet.clone(),
-		recv_mask,
 		PathBuf::from(test_dir),
-		|api, m| {
-			// Receive wallet inititates an invoice transaction with --receive=5
-			let args = &mut ContractNewArgsAPI {
+		recv_mask.cloned(),
+		|api| {
+			let rejected = ContractNewArgsAPI {
 				setup_args: ContractSetupArgsAPI {
-					selection_args: common::contract_selection_args(),
-					net_change: Some(5_000_000_000),
-					..Default::default()
+					net_change: Some(-5_000_000_000),
+					..args.setup_args.clone()
 				},
-				..Default::default()
 			};
-			slate = api.contract_new(m, args)?;
+			let err = api.contract_new(&rejected).unwrap_err();
+			assert!(matches!(
+				err,
+				libwallet::Error::GenericError(ref msg)
+					if msg == "Can't create a non-receiving contract from a foreign API."
+			));
+			slate = Some(api.contract_new(args)?);
 			Ok(())
 		},
 	)?;
+	let mut slate = slate.expect("foreign API returned no slate");
 	assert_eq!(slate.state, SlateState::Invoice1);
+	common::assert_basic_contract_slate(
+		&slate,
+		common::ExpectedContractSlate {
+			amount: 5_000_000_000,
+			fee: participant_fee,
+			inputs: 0,
+			outputs: 0,
+			kernels: 0,
+			num_participants: 2,
+			participant_data: 1,
+			signatures: 0,
+		},
+	);
 
 	wallet::controller::owner_single_use(
 		send_wallet.clone(),
@@ -92,6 +147,19 @@ fn contract_rsr_tx_impl(test_dir: &'static str) -> Result<(), libwallet::Error> 
 		},
 	)?;
 	assert_eq!(slate.state, SlateState::Invoice2);
+	common::assert_basic_contract_slate(
+		&slate,
+		common::ExpectedContractSlate {
+			amount: 5_000_000_000,
+			fee: 2 * participant_fee,
+			inputs: 1,
+			outputs: 1,
+			kernels: 1,
+			num_participants: 2,
+			participant_data: 2,
+			signatures: 1,
+		},
+	);
 
 	// Receive wallet finalizes and posts
 	wallet::controller::owner_single_use(
@@ -108,6 +176,19 @@ fn contract_rsr_tx_impl(test_dir: &'static str) -> Result<(), libwallet::Error> 
 		},
 	)?;
 	assert_eq!(slate.state, SlateState::Invoice3);
+	common::assert_basic_contract_slate(
+		&slate,
+		common::ExpectedContractSlate {
+			amount: 5_000_000_000,
+			fee: 2 * participant_fee,
+			inputs: 2,
+			outputs: 2,
+			kernels: 1,
+			num_participants: 2,
+			participant_data: 2,
+			signatures: 2,
+		},
+	);
 
 	// Send wallet posts so receive wallet doesn't get the mined amount
 	wallet::controller::owner_single_use(

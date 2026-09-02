@@ -22,6 +22,7 @@ use grin_core as core;
 use grin_keychain as keychain;
 use grin_util as util;
 
+use self::core::core::{FeeFields, KernelFeatures};
 use self::core::global;
 use self::core::global::ChainTypes;
 use self::keychain::{ExtKeychain, Keychain};
@@ -94,6 +95,81 @@ pub fn contract_selection_args() -> libwallet::contract::types::OutputSelectionA
 		minimum_confirmations: Some(1),
 		..Default::default()
 	}
+}
+
+#[allow(dead_code)]
+pub struct ExpectedContractSlate {
+	pub amount: u64,
+	pub fee: u64,
+	pub inputs: usize,
+	pub outputs: usize,
+	pub kernels: usize,
+	pub num_participants: u8,
+	pub participant_data: usize,
+	pub signatures: usize,
+}
+
+#[allow(dead_code)]
+pub fn assert_basic_contract_slate(slate: &libwallet::Slate, expected: ExpectedContractSlate) {
+	let tx = slate.tx_or_err().unwrap();
+	assert_ne!(expected.fee, 0, "expected fee must be non-zero");
+	let expected_fee = FeeFields::new(0, expected.fee).unwrap();
+	assert_eq!(slate.amount, expected.amount);
+	assert_eq!(slate.fee_fields, expected_fee);
+	assert_eq!(slate.kernel_features, 0);
+	assert!(slate.kernel_features_args.is_none());
+	assert!(slate.payment_proof.is_none());
+	assert_eq!(slate.num_participants, expected.num_participants);
+	assert_eq!(tx.inputs().len(), expected.inputs);
+	assert_eq!(tx.outputs().len(), expected.outputs);
+	assert_eq!(tx.kernels().len(), expected.kernels);
+	assert_eq!(slate.participant_data.len(), expected.participant_data);
+	assert_eq!(
+		slate
+			.participant_data
+			.iter()
+			.filter(|participant| participant.part_sig.is_some())
+			.count(),
+		expected.signatures
+	);
+	if expected.kernels != 0 {
+		assert_eq!(
+			tx.kernels()[0].features,
+			KernelFeatures::Plain { fee: expected_fee }
+		);
+	}
+}
+
+#[allow(dead_code)]
+pub type TestOwner = grin_wallet_api::Owner<
+	DefaultLCProvider<LocalWalletClient, ExtKeychain>,
+	LocalWalletClient,
+	ExtKeychain,
+>;
+
+#[allow(dead_code)]
+#[derive(Debug, PartialEq, Eq)]
+pub struct WalletProgress {
+	child_index: u32,
+	tx_count: usize,
+}
+
+#[allow(dead_code)]
+pub fn wallet_progress(
+	api: &TestOwner,
+	keychain_mask: Option<&SecretKey>,
+) -> Result<WalletProgress, libwallet::Error> {
+	let child_index = {
+		let mut wallet = api.wallet_inst.lock();
+		let wallet = wallet.lc_provider()?.wallet_inst()?;
+		let parent = wallet.parent_key_id();
+		wallet.current_child_index(&parent)?
+	};
+	let (_, txs) = api.retrieve_txs(keychain_mask, false, None, None, None)?;
+	Ok(WalletProgress {
+		child_index,
+		tx_count: txs.len(),
+	})
 }
 
 pub fn setup(test_dir: &str) {

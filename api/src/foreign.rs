@@ -44,6 +44,10 @@ pub enum ForeignCheckMiddlewareFn {
 	VerifySlateMessages,
 	/// receive_tx
 	ReceiveTx,
+	/// contract_new
+	ContractNew,
+	/// contract_sign
+	ContractSign,
 	/// finalize_tx
 	FinalizeTx,
 }
@@ -463,26 +467,35 @@ where
 	// Below is a foreign wrapper around owner calls to 'new' and 'sign' which are only executed
 	// if this is a receiving contract. This preserves the ability to receive on a foreign interface.
 	/// Start a receiving contract through the foreign API.
-	pub fn contract_new(
-		&self,
-		keychain_mask: Option<&SecretKey>,
-		args: &ContractNewArgsAPI,
-	) -> Result<Slate, Error> {
+	pub fn contract_new(&self, args: &ContractNewArgsAPI) -> Result<Slate, Error> {
 		let mut w_lock = self.wallet_inst.lock();
 		let w = w_lock.lc_provider()?.wallet_inst()?;
-		foreign::contract_new(w, keychain_mask, args)
+		if let Some(m) = self.middleware.as_ref() {
+			m(
+				ForeignCheckMiddlewareFn::ContractNew,
+				w.w2n_client().get_version_info(),
+				None,
+			)?;
+		}
+		foreign::contract_new(w, (&self.keychain_mask).as_ref(), args)
 	}
 
 	/// Sign the receiving side of a contract through the foreign API.
 	pub fn contract_sign(
 		&self,
-		keychain_mask: Option<&SecretKey>,
 		slate: &Slate,
 		args: &ContractSetupArgsAPI,
 	) -> Result<Slate, Error> {
 		let mut w_lock = self.wallet_inst.lock();
 		let w = w_lock.lc_provider()?.wallet_inst()?;
-		foreign::contract_sign(w, keychain_mask, args, slate)
+		if let Some(m) = self.middleware.as_ref() {
+			m(
+				ForeignCheckMiddlewareFn::ContractSign,
+				w.w2n_client().get_version_info(),
+				Some(slate),
+			)?;
+		}
+		foreign::contract_sign(w, (&self.keychain_mask).as_ref(), args, slate)
 	}
 
 	/// Verify an invoice payment proof against the chain.

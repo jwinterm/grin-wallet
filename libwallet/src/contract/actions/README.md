@@ -73,8 +73,6 @@ Separating side effects until the 'save_step' part would make these functions mu
 
 #### Tests
 
- - slate contents at each step, not only the end state
- - the foreign API entry points for `new` and `sign`
  - Slatepack version negotiation with the last supported wallet release
 
 #### save_step
