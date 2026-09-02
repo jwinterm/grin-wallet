@@ -179,6 +179,29 @@ pub struct ContractView {
 	pub num_sigs: u8,
 	/// Has the contract been executed on chain
 	pub is_executed: bool,
+	/// Whether the slate contains an unexpected commitment from this wallet.
+	/// This is unknown when the private context is no longer available, input
+	/// features are missing, or the slate contains no transaction.
+	#[serde(default)]
+	pub own_commitment_status: OwnCommitmentStatus,
+}
+
+/// Result of comparing a contract slate with commitments owned by this wallet
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OwnCommitmentStatus {
+	/// No unexpected wallet commitment was found
+	Clean,
+	/// The slate contains an unexpected input from this wallet
+	UnexpectedInput,
+	/// The slate contains an unexpected output from this wallet
+	UnexpectedOutput,
+	/// The slate contains an unexpected input and output from this wallet
+	UnexpectedInputAndOutput,
+	/// The comparison could not be made
+	#[default]
+	#[serde(other)]
+	Unknown,
 }
 
 impl Default for ContractView {
@@ -189,6 +212,7 @@ impl Default for ContractView {
 			agreed_net_change: None,
 			num_sigs: 0,
 			is_executed: false,
+			own_commitment_status: OwnCommitmentStatus::Unknown,
 		}
 	}
 }
@@ -200,4 +224,44 @@ pub struct ContractRevokeArgsAPI {
 	pub tx_id: u32,
 	/// Account containing the transaction, or the active account when omitted
 	pub src_acct_name: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn own_commitment_status_json() {
+		for (status, value) in [
+			(OwnCommitmentStatus::Clean, "clean"),
+			(OwnCommitmentStatus::UnexpectedInput, "unexpected_input"),
+			(OwnCommitmentStatus::UnexpectedOutput, "unexpected_output"),
+			(
+				OwnCommitmentStatus::UnexpectedInputAndOutput,
+				"unexpected_input_and_output",
+			),
+			(OwnCommitmentStatus::Unknown, "unknown"),
+		] {
+			let json = format!("\"{}\"", value);
+			assert_eq!(serde_json::to_string(&status).unwrap(), json);
+			assert_eq!(
+				serde_json::from_str::<OwnCommitmentStatus>(&json).unwrap(),
+				status
+			);
+		}
+		assert_eq!(
+			serde_json::from_str::<OwnCommitmentStatus>("\"future_status\"").unwrap(),
+			OwnCommitmentStatus::Unknown
+		);
+
+		let view: ContractView = serde_json::from_value(serde_json::json!({
+			"num_participants": 2,
+			"suggested_net_change": null,
+			"agreed_net_change": null,
+			"num_sigs": 0,
+			"is_executed": false
+		}))
+		.unwrap();
+		assert_eq!(view.own_commitment_status, OwnCommitmentStatus::Unknown);
+	}
 }

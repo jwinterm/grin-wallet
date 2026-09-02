@@ -136,41 +136,31 @@ where
 }
 
 /// Get net_change value. This is obtained either from the Context.net_change or the setup_args.net_change
-pub fn get_net_change<C, K>(
-	w: &mut WalletBackend<C, K>,
-	keychain_mask: Option<&SecretKey>,
-	slate_id: &Uuid,
+pub fn get_net_change(
+	context: Option<&Context>,
 	setup_args_net_change: Option<i64>,
-) -> Result<i64, Error>
-where
-	C: NodeClient,
-	K: Keychain,
-{
+) -> Result<i64, Error> {
 	let mut expected_net_change: Option<i64> = setup_args_net_change;
-	match w.get_private_context(keychain_mask, slate_id.as_bytes()) {
-		Ok(ctx) => {
-			debug!("contract::sign => context found");
-			// We have a context so we must have agreed on a certain net_change value in Context.net_change.
-			// If we have both Context.net_change and setup_args.net_change, then they must be equal.
-			let ctx_net_change = ctx.get_net_change()?;
-			match expected_net_change {
-				Some(args_net_change) => {
-					if ctx_net_change != args_net_change {
-						return Err(Error::GenericError(format!(
-							"Expected net change mismatch! Context.net_change: {}, setup_args.net_change: {}",
-							ctx_net_change, args_net_change
-						)));
-					}
+	if let Some(context) = context {
+		debug!("contract::sign => context found");
+		// We have a context so we must have agreed on a certain net_change value in Context.net_change.
+		// If we have both Context.net_change and setup_args.net_change, then they must be equal.
+		let ctx_net_change = context.get_net_change()?;
+		match expected_net_change {
+			Some(args_net_change) => {
+				if ctx_net_change != args_net_change {
+					return Err(Error::GenericError(format!(
+						"Expected net change mismatch! Context.net_change: {}, setup_args.net_change: {}",
+						ctx_net_change, args_net_change
+					)));
 				}
-				None => (),
 			}
-			expected_net_change = Some(ctx_net_change);
+			None => (),
 		}
-		Err(Error::NotFoundErr(_)) => {
-			debug!("contract::utils::get_net_change => context not found")
-		}
-		Err(e) => return Err(e),
-	};
+		expected_net_change = Some(ctx_net_change);
+	} else {
+		debug!("contract::utils::get_net_change => context not found")
+	}
 
 	// Fail if net_change was not passed to setup_args and was also not present in the context.
 	// This means it has not been explicitly agreed on and we require the user to pass it.
@@ -357,6 +347,11 @@ pub fn my_fee_contribution(
 	Ok(my_fee_fields)
 }
 
+/// Whether a transaction log entry shows that this wallet signed the slate.
+pub(super) fn is_signed_tx(tx: &TxLogEntry, slate_id: Uuid) -> bool {
+	tx.tx_slate_id == Some(slate_id) && tx.kernel_excess.is_some()
+}
+
 /// Returns an error if the slate has already been signed (in our local database). Even if the
 /// result is Ok, it's still possible it was signed but we don't have the data about it locally.
 pub fn verify_not_signed<C, K>(w: &mut WalletBackend<C, K>, slate_id: Uuid) -> Result<(), Error>
@@ -368,7 +363,7 @@ where
 	// we have already signed this slate.
 	for tx in w.tx_log_iter()? {
 		let tx = tx?;
-		if tx.tx_slate_id == Some(slate_id) && tx.kernel_excess.is_some() {
+		if is_signed_tx(&tx, slate_id) {
 			debug!("contract::utils::verify_not_signed => The slate has already been signed.");
 			return Err(Error::GenericError(format!(
 				"Slate with id:{} has already been signed.",

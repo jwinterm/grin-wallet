@@ -40,8 +40,11 @@ transaction has spent the available outputs first.
 ## View and revoke
 
 `view` reads a slate or Slatepack and shows the participants, signatures, suggested or
-agreed amount change, and whether the local transaction is confirmed. It does not show all
-inputs, outputs and fees, and it cannot find a contract by id.
+agreed amount change, whether the local transaction is confirmed, and whether it contains
+unexpected inputs or outputs from this wallet. This check is reported as unknown after
+the private context has been removed, when input features are missing, or when the slate
+does not contain a transaction. `view` does not show all inputs, outputs and fees, and it
+cannot find a contract by id.
 
 `revoke` cancels the local transaction. When the wallet added an input, it returns a
 self-spend of that input. The caller still has to post it, and either transaction can win
@@ -53,7 +56,6 @@ account selected with `--account`.
 ## Current limitations
 
 * Only one or two participants are supported
-* A returned slate is not yet checked against every input and output saved during setup
 * Early payment proofs are only implemented for contracts and are only available through
   the API. Only invoice proofs are supported and they require the experimental Slate V5
   format. The full proposal is described in

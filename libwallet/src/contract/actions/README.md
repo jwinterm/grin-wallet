@@ -31,7 +31,7 @@ only added to the slate when signing, so the counterparty does not see them earl
 Ideally we'd also separate side effects out of these functions e.g. computing the current_height
 or refreshing the outputs with updater::refresh_outputs(...). The current_height could be
 communicated through a &ChainState parameter which would collect these values before the call.
-Additionally, we could fetch the existing Context before the call to avoid doing db fetch.
+Setup still reads an existing Context again; passing it through would avoid that DB read.
 Separating side effects until the 'save_step' part would make these functions much easier to test.
 
 #### TODOs
@@ -41,8 +41,6 @@ Separating side effects until the 'save_step' part would make these functions mu
    only `--add-outputs` locks during `new`.
  - Reserve funds across open late-locked contracts, or make the possible signing failure
    clearer to callers.
- - Check the commitments we contributed are the ones that come back, so a counterparty
-   can't return a slate carrying inputs or outputs of ours that we didn't put there.
  - Handle the coinbase flows. Coinbase inputs are built into the slate, but nothing else
    is exercised.
  - For a payjoin, `--use-inputs any` picks an input for us; naming the commitment would be
@@ -77,7 +75,7 @@ Separating side effects until the 'save_step' part would make these functions mu
  - signing the same slate twice, which `verify_not_signed` guards
  - zero-value outputs, and `--make-outputs` beyond what is available
  - a receiver with no spendable input, through lack of funds or of confirmations
- - invalid or inconsistent slates, including changed commitments and unexpected states
+ - invalid or inconsistent slates and unexpected states
  - the CLI conflict between `--no-payjoin` and `--use-inputs`
  - a committed fee that no longer covers the selected inputs and outputs
  - slate contents at each step, not only the end state
@@ -102,6 +100,8 @@ Separating side effects until the 'save_step' part would make these functions mu
 
 #### Sign
 	// Side-effects:
-	//  - contract_utils::check_already_signed -> tx_log_iter
-	//  - contract_utils::get_net_change -> context and net_change
+	//  - contract_utils::verify_not_signed -> tx_log_iter
+	//  - sign -> w.get_private_context(...)
+	//  - verify_incoming_own_commitments -> w.iter()
+	//  - verify_own_commitments -> w.get(...)
 	//  - everything from 'setup'

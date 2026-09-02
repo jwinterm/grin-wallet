@@ -20,8 +20,9 @@ extern crate log;
 use grin_wallet_libwallet as libwallet;
 
 use grin_core::consensus;
+use grin_core::core::transaction::{Input, OutputFeatures};
 use libwallet::contract::my_fee_contribution;
-use libwallet::contract::types::{ContractNewArgsAPI, ContractSetupArgsAPI};
+use libwallet::contract::types::{ContractNewArgsAPI, ContractSetupArgsAPI, OwnCommitmentStatus};
 use libwallet::{OutputStatus, Slate, SlateState};
 use std::sync::atomic::Ordering;
 use std::thread;
@@ -34,11 +35,13 @@ use std::path::PathBuf;
 
 /// contract new with --add-outputs
 fn contract_early_lock_tx_impl(test_dir: &'static str) -> Result<(), libwallet::Error> {
-	// create a single wallet and mine 5 blocks
+	// create two wallets and mine 5 blocks in each
 	let (wallets, _chain, stopper, _bh) =
-		create_wallets(vec![vec![("default", 5)]], test_dir).unwrap();
+		create_wallets(vec![vec![("default", 5)], vec![("default", 5)]], test_dir).unwrap();
 	let send_wallet = wallets[0].0.clone();
 	let send_mask = wallets[0].1.as_ref();
+	let recv_wallet = wallets[1].0.clone();
+	let recv_mask = wallets[1].1.as_ref();
 
 	// Confirm all our outputs are unspent
 	wallet::controller::owner_single_use(
@@ -101,6 +104,79 @@ fn contract_early_lock_tx_impl(test_dir: &'static str) -> Result<(), libwallet::
 			Ok(())
 		},
 	)?;
+
+	// The receiver signs without seeing the sender's locked commitments.
+	wallet::controller::owner_single_use(
+		recv_wallet.clone(),
+		recv_mask,
+		PathBuf::from(test_dir),
+		|api, m| {
+			slate = api.contract_sign(
+				m,
+				&slate,
+				&ContractSetupArgsAPI {
+					net_change: Some(80_000_000_000),
+					..Default::default()
+				},
+			)?;
+			Ok(())
+		},
+	)?;
+	assert_eq!(slate.state, SlateState::Standard2);
+
+	// Even a commitment reserved for this contract must not be present before we add it.
+	wallet::controller::owner_single_use(
+		send_wallet.clone(),
+		send_mask,
+		PathBuf::from(test_dir),
+		|api, m| {
+			let (_, outputs) = api.retrieve_outputs(m, false, false, None)?;
+			let output = outputs
+				.iter()
+				.find(|output| output.output.status == OutputStatus::Locked)
+				.expect("sender has a locked contract input");
+			let features = if output.output.is_coinbase {
+				OutputFeatures::Coinbase
+			} else {
+				OutputFeatures::Plain
+			};
+			let mut changed = slate.clone();
+			changed.tx = Some(
+				changed
+					.tx_or_err()?
+					.clone()
+					.with_input(Input::new(features, output.commit)),
+			);
+			let view = api.contract_view(m, &changed)?;
+			assert_eq!(
+				view.own_commitment_status,
+				OwnCommitmentStatus::UnexpectedInput
+			);
+			let err = api
+				.contract_sign(m, &changed, &ContractSetupArgsAPI::default())
+				.unwrap_err();
+			match err {
+				libwallet::Error::GenericError(message) => assert_eq!(
+					message,
+					"Contract slate contains an unexpected input commitment from this wallet"
+				),
+				err => panic!("unexpected error: {}", err),
+			}
+			Ok(())
+		},
+	)?;
+
+	// The sender adds the reserved commitments and completes the contract.
+	wallet::controller::owner_single_use(
+		send_wallet.clone(),
+		send_mask,
+		PathBuf::from(test_dir),
+		|api, m| {
+			slate = api.contract_sign(m, &slate, &ContractSetupArgsAPI::default())?;
+			Ok(())
+		},
+	)?;
+	assert_eq!(slate.state, SlateState::Standard3);
 
 	// let logging finish
 	stopper.store(false, Ordering::Relaxed);

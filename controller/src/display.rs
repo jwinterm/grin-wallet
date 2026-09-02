@@ -15,7 +15,7 @@
 use crate::core::core::FeeFields;
 use crate::core::core::{self, amount_to_hr_string};
 use crate::core::global;
-use crate::libwallet::contract::types::ContractView;
+use crate::libwallet::contract::types::{ContractView, OwnCommitmentStatus};
 use crate::libwallet::{
 	AcctPathMapping, Error, OutputCommitMapping, OutputStatus, Slate, TxLogEntry, ViewWallet,
 	WalletInfo,
@@ -651,6 +651,18 @@ pub fn contract_view(slate: &Slate, view: &ContractView) {
 	let agreed = format_net_change(view.agreed_net_change);
 	table.add_row(row![bFC->"Agreed Net Change", bGC->agreed]);
 	table.add_row(row![bFC->"Executed", bGC->view.is_executed]);
+	let (unexpected, warning) = match view.own_commitment_status {
+		OwnCommitmentStatus::UnexpectedInput => ("Input", true),
+		OwnCommitmentStatus::UnexpectedOutput => ("Output", true),
+		OwnCommitmentStatus::UnexpectedInputAndOutput => ("Input and output", true),
+		OwnCommitmentStatus::Clean => ("No", false),
+		OwnCommitmentStatus::Unknown => ("Unknown", false),
+	};
+	if warning {
+		table.add_row(row![bFC->"Unexpected Own Commitments", bFR->unexpected]);
+	} else {
+		table.add_row(row![bFC->"Unexpected Own Commitments", bGC->unexpected]);
+	}
 
 	table.set_format(*prettytable::format::consts::FORMAT_NO_BORDER_LINE_SEPARATOR);
 	table.printstd();

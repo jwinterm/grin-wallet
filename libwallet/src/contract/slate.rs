@@ -15,16 +15,21 @@
 //! Contract functions on the Slate
 
 use crate::backend::WalletBackend;
+use crate::grin_core::core::transaction::{Inputs, OutputFeatures, OutputIdentifier};
 use crate::grin_core::libtx::build;
 use crate::grin_core::libtx::proof::ProofBuilder;
-use crate::grin_keychain::Keychain;
+use crate::grin_keychain::{Identifier, Keychain, SwitchCommitmentType};
+use crate::grin_util::from_hex;
+use crate::grin_util::secp::constants::PEDERSEN_COMMITMENT_SIZE;
 use crate::grin_util::secp::key::{PublicKey, SecretKey};
+use crate::grin_util::secp::pedersen::Commitment;
 use crate::slate::{PaymentProofType, Slate, SlateState};
-use crate::types::{Context, NodeClient};
+use crate::types::{Context, NodeClient, OutputData};
 use crate::util::OnionV3Address;
 use crate::Error;
+use std::collections::BTreeSet;
 
-use super::types::ProofArgs;
+use super::types::{OwnCommitmentStatus, ProofArgs};
 use crate::contract::proofs::InvoiceProof;
 
 /// Add payment proof data to slate, noop for sender
@@ -119,6 +124,243 @@ where
 	slate.adjust_offset(keychain, &context)?;
 
 	Ok(())
+}
+
+fn derive_commitment<K>(keychain: &K, id: &Identifier, amount: u64) -> Result<Commitment, Error>
+where
+	K: Keychain,
+{
+	keychain
+		.commit(amount, id, SwitchCommitmentType::Regular)
+		.map_err(Error::from)
+}
+
+fn cached_commitment(commit: &str) -> Option<Commitment> {
+	from_hex(commit)
+		.ok()
+		.filter(|bytes| bytes.len() == PEDERSEN_COMMITMENT_SIZE)
+		.map(Commitment::from_vec)
+}
+
+fn stored_commitment<K>(keychain: &K, output: &OutputData) -> Result<Commitment, Error>
+where
+	K: Keychain,
+{
+	// Commitments written by the wallet are used directly. Rebuild malformed cache entries.
+	if let Some(commit) = output.commit.as_deref().and_then(cached_commitment) {
+		return Ok(commit);
+	}
+	derive_commitment(keychain, &output.key_id, output.value)
+}
+
+fn derive_identifier<K>(
+	keychain: &K,
+	id: &Identifier,
+	amount: u64,
+	features: OutputFeatures,
+) -> Result<OutputIdentifier, Error>
+where
+	K: Keychain,
+{
+	Ok(OutputIdentifier::new(
+		features,
+		&derive_commitment(keychain, id, amount)?,
+	))
+}
+
+fn check_identifiers(
+	actual: &[OutputIdentifier],
+	expected: &[OutputIdentifier],
+	kind: &str,
+) -> Result<(), Error> {
+	for expected in expected {
+		let mut matches = actual
+			.iter()
+			.filter(|actual| actual.commitment() == expected.commitment());
+		match matches.next() {
+			None => {
+				return Err(Error::GenericError(format!(
+					"Contract slate is missing one of our {} commitments",
+					kind
+				)))
+			}
+			Some(actual) if actual != expected || matches.next().is_some() => {
+				return Err(Error::GenericError(format!(
+					"Contract slate changed or duplicated one of our {} commitments",
+					kind
+				)))
+			}
+			Some(_) => {}
+		}
+	}
+	Ok(())
+}
+
+fn expected_identifiers<C, K>(
+	w: &WalletBackend<C, K>,
+	keychain: &K,
+	context: &Context,
+) -> Result<(Vec<OutputIdentifier>, Vec<OutputIdentifier>), Error>
+where
+	C: NodeClient,
+	K: Keychain,
+{
+	let expected_inputs = context
+		.input_ids
+		.iter()
+		.map(|(id, mmr_index, amount)| {
+			let output = w.get(id, mmr_index)?;
+			derive_identifier(
+				keychain,
+				id,
+				*amount,
+				if output.is_coinbase {
+					OutputFeatures::Coinbase
+				} else {
+					OutputFeatures::Plain
+				},
+			)
+		})
+		.collect::<Result<Vec<_>, Error>>()?;
+	let expected_outputs = context
+		.output_ids
+		.iter()
+		.map(|(id, _, amount)| derive_identifier(keychain, id, *amount, OutputFeatures::Plain))
+		.collect::<Result<Vec<_>, Error>>()?;
+	Ok((expected_inputs, expected_outputs))
+}
+
+const MISSING_INPUT_FEATURES: &str = "Contract slate input features are missing";
+
+/// Compare a slate with commitments owned by this wallet. A signed context
+/// identifies commitments that this wallet has already added.
+pub(super) fn own_commitment_status<C, K>(
+	w: &WalletBackend<C, K>,
+	keychain_mask: Option<&SecretKey>,
+	slate: &Slate,
+	signed_context: Option<&Context>,
+) -> Result<OwnCommitmentStatus, Error>
+where
+	C: NodeClient,
+	K: Keychain,
+{
+	let keychain = w.keychain(keychain_mask)?;
+	let tx = slate.tx_or_err()?;
+	let inputs = match tx.inputs() {
+		// Unknown only means missing input features here. View also uses Unknown when
+		// the private context has already been removed.
+		Inputs::CommitOnly(_) => return Ok(OwnCommitmentStatus::Unknown),
+		Inputs::FeaturesAndCommit(inputs) => inputs,
+	};
+	let (expected_inputs, expected_outputs) = match signed_context {
+		Some(context) => {
+			let (inputs, outputs) = expected_identifiers(w, &keychain, context)?;
+			(
+				inputs
+					.into_iter()
+					.map(|input| input.commitment())
+					.collect::<BTreeSet<_>>(),
+				outputs
+					.into_iter()
+					.map(|output| output.commitment())
+					.collect::<BTreeSet<_>>(),
+			)
+		}
+		None => (BTreeSet::new(), BTreeSet::new()),
+	};
+	let incoming_inputs = inputs
+		.into_iter()
+		.map(|input| input.commitment())
+		.filter(|commit| !expected_inputs.contains(commit))
+		.collect::<BTreeSet<_>>();
+	let incoming_outputs = tx
+		.outputs()
+		.iter()
+		.map(|output| output.commitment())
+		.filter(|commit| !expected_outputs.contains(commit))
+		.collect::<BTreeSet<_>>();
+	if incoming_inputs.is_empty() && incoming_outputs.is_empty() {
+		return Ok(OwnCommitmentStatus::Clean);
+	}
+
+	let mut unexpected_input = false;
+	let mut unexpected_output = false;
+	for output in w.iter()? {
+		let commit = stored_commitment(&keychain, &output)?;
+		unexpected_input |= incoming_inputs.contains(&commit);
+		unexpected_output |= incoming_outputs.contains(&commit);
+		if (unexpected_input || incoming_inputs.is_empty())
+			&& (unexpected_output || incoming_outputs.is_empty())
+		{
+			break;
+		}
+	}
+	Ok(match (unexpected_input, unexpected_output) {
+		(true, true) => OwnCommitmentStatus::UnexpectedInputAndOutput,
+		(true, false) => OwnCommitmentStatus::UnexpectedInput,
+		(false, true) => OwnCommitmentStatus::UnexpectedOutput,
+		(false, false) => OwnCommitmentStatus::Clean,
+	})
+}
+
+/// Reject commitments from this wallet before contract setup reserves any keys.
+pub(super) fn verify_incoming_own_commitments<C, K>(
+	w: &WalletBackend<C, K>,
+	keychain_mask: Option<&SecretKey>,
+	slate: &Slate,
+) -> Result<(), Error>
+where
+	C: NodeClient,
+	K: Keychain,
+{
+	let found = match own_commitment_status(w, keychain_mask, slate, None)? {
+		OwnCommitmentStatus::UnexpectedInput => "an unexpected input commitment",
+		OwnCommitmentStatus::UnexpectedOutput => "an unexpected output commitment",
+		OwnCommitmentStatus::UnexpectedInputAndOutput => "unexpected input and output commitments",
+		OwnCommitmentStatus::Unknown => {
+			return Err(Error::GenericError(MISSING_INPUT_FEATURES.to_string()))
+		}
+		OwnCommitmentStatus::Clean => return Ok(()),
+	};
+	Err(Error::GenericError(format!(
+		"Contract slate contains {} from this wallet",
+		found
+	)))
+}
+
+/// Check that the slate still contains the commitments selected for this contract.
+pub(super) fn verify_own_commitments<C, K>(
+	w: &WalletBackend<C, K>,
+	keychain_mask: Option<&SecretKey>,
+	slate: &Slate,
+	context: &Context,
+) -> Result<(), Error>
+where
+	C: NodeClient,
+	K: Keychain,
+{
+	let keychain = w.keychain(keychain_mask)?;
+	let (expected_inputs, expected_outputs) = expected_identifiers(w, &keychain, context)?;
+	let tx = slate.tx_or_err()?;
+	match tx.inputs() {
+		Inputs::CommitOnly(_) => {
+			return Err(Error::GenericError(MISSING_INPUT_FEATURES.to_string()))
+		}
+		Inputs::FeaturesAndCommit(inputs) => {
+			let inputs = inputs
+				.iter()
+				.map(OutputIdentifier::from)
+				.collect::<Vec<_>>();
+			check_identifiers(&inputs, &expected_inputs, "input")?;
+		}
+	}
+	let actual_outputs = tx
+		.outputs()
+		.iter()
+		.map(|output| output.identifier())
+		.collect::<Vec<_>>();
+
+	check_identifiers(&actual_outputs, &expected_outputs, "output")
 }
 
 /// Contribute inputs to slate
@@ -387,5 +629,27 @@ mod tests {
 			transition_state(&mut slate).unwrap();
 			assert_eq!(slate.state, to);
 		}
+	}
+
+	#[test]
+	fn checks_own_commitments() {
+		let identifier =
+			|value, features| OutputIdentifier::new(features, &Commitment::from_vec(vec![value]));
+		let own_input = identifier(1, OutputFeatures::Plain);
+		let own_output = identifier(2, OutputFeatures::Plain);
+
+		check_identifiers(&[own_input], &[own_input], "input").unwrap();
+		assert!(check_identifiers(&[], &[own_input], "input").is_err());
+		assert!(check_identifiers(&[own_input], &[own_output], "output").is_err());
+		assert!(check_identifiers(&[own_input, own_input], &[own_input], "input").is_err());
+		assert!(check_identifiers(
+			&[identifier(1, OutputFeatures::Coinbase)],
+			&[own_input],
+			"input"
+		)
+		.is_err());
+		assert!(cached_commitment("01").is_none());
+		assert!(cached_commitment("not hex").is_none());
+		assert!(cached_commitment(&"00".repeat(PEDERSEN_COMMITMENT_SIZE)).is_some());
 	}
 }

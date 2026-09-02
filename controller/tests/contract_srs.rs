@@ -19,9 +19,10 @@ extern crate log;
 
 use grin_wallet_libwallet as libwallet;
 
+use grin_core::core::transaction::{CommitWrapper, Input, Inputs, OutputFeatures, Transaction};
 use impls::test_framework::{self};
 use libwallet::contract::my_fee_contribution;
-use libwallet::contract::types::{ContractNewArgsAPI, ContractSetupArgsAPI};
+use libwallet::contract::types::{ContractNewArgsAPI, ContractSetupArgsAPI, OwnCommitmentStatus};
 use libwallet::{Slate, SlateState, TxLogEntryType};
 use std::sync::atomic::Ordering;
 use std::thread;
@@ -78,6 +79,171 @@ fn contract_srs_tx_impl(test_dir: &'static str) -> Result<(), libwallet::Error> 
 		},
 	)?;
 	assert_eq!(slate.state, SlateState::Standard2);
+	wallet::controller::owner_single_use(
+		recv_wallet.clone(),
+		recv_mask,
+		PathBuf::from(test_dir),
+		|api, m| {
+			let view = api.contract_view(m, &slate)?;
+			assert_eq!(view.own_commitment_status, OwnCommitmentStatus::Clean);
+			Ok(())
+		},
+	)?;
+	wallet::controller::owner_single_use(
+		send_wallet.clone(),
+		send_mask,
+		PathBuf::from(test_dir),
+		|api, m| {
+			let view = api.contract_view(m, &slate)?;
+			assert_eq!(view.own_commitment_status, OwnCommitmentStatus::Clean);
+			let mut no_tx = slate.clone();
+			no_tx.tx = None;
+			let view = api.contract_view(m, &no_tx)?;
+			assert_eq!(view.own_commitment_status, OwnCommitmentStatus::Unknown);
+			Ok(())
+		},
+	)?;
+
+	// The sender must reject an unused commitment from its wallet if it was inserted by the receiver.
+	wallet::controller::owner_single_use(
+		send_wallet.clone(),
+		send_mask,
+		PathBuf::from(test_dir),
+		|api, m| {
+			let (_, outputs) = api.retrieve_outputs(m, false, false, None)?;
+			let tx = slate.tx_or_err()?;
+			let input_commits = Vec::<CommitWrapper>::from(&tx.inputs());
+			let child_index = {
+				let mut wallet = api.wallet_inst.lock();
+				let wallet = wallet.lc_provider()?.wallet_inst()?;
+				let parent = wallet.parent_key_id();
+				wallet.current_child_index(&parent)?
+			};
+			let mut changed = slate.clone();
+			changed.tx = Some(
+				Transaction::new(
+					Inputs::CommitOnly(input_commits.clone()),
+					tx.outputs(),
+					tx.kernels(),
+				)
+				.with_offset(tx.offset.clone()),
+			);
+			let err = api
+				.contract_sign(m, &changed, &ContractSetupArgsAPI::default())
+				.unwrap_err();
+			match err {
+				libwallet::Error::GenericError(message) => {
+					assert_eq!(message, "Contract slate input features are missing")
+				}
+				err => panic!("unexpected error: {}", err),
+			}
+			let view = api.contract_view(m, &changed)?;
+			assert_eq!(view.own_commitment_status, OwnCommitmentStatus::Unknown);
+			let current_child_index = {
+				let mut wallet = api.wallet_inst.lock();
+				let wallet = wallet.lc_provider()?.wallet_inst()?;
+				let parent = wallet.parent_key_id();
+				wallet.current_child_index(&parent)?
+			};
+			assert_eq!(current_child_index, child_index);
+
+			let (output, pos) = outputs
+				.iter()
+				.find_map(|output| {
+					let unused = !input_commits
+						.iter()
+						.any(|input| input.commitment() == output.commit)
+						&& !tx
+							.outputs()
+							.iter()
+							.any(|tx_output| tx_output.commitment() == output.commit);
+					if unused {
+						chain
+							.get_output_pos(&output.commit)
+							.ok()
+							.map(|pos| (output, pos))
+					} else {
+						None
+					}
+				})
+				.expect("sender has an unused confirmed output");
+			let features = if output.output.is_coinbase {
+				OutputFeatures::Coinbase
+			} else {
+				OutputFeatures::Plain
+			};
+			let mut changed = slate.clone();
+			changed.tx = Some(
+				changed
+					.tx_or_err()?
+					.clone()
+					.with_input(Input::new(features, output.commit)),
+			);
+			let view = api.contract_view(m, &changed)?;
+			assert_eq!(
+				view.own_commitment_status,
+				OwnCommitmentStatus::UnexpectedInput
+			);
+			let err = api
+				.contract_sign(m, &changed, &ContractSetupArgsAPI::default())
+				.unwrap_err();
+			match err {
+				libwallet::Error::GenericError(message) => assert_eq!(
+					message,
+					"Contract slate contains an unexpected input commitment from this wallet"
+				),
+				err => panic!("unexpected error: {}", err),
+			}
+
+			let mut changed = slate.clone();
+			changed.tx = Some(
+				changed
+					.tx_or_err()?
+					.clone()
+					.with_output(chain.get_unspent_output_at(pos).unwrap()),
+			);
+			let view = api.contract_view(m, &changed)?;
+			assert_eq!(
+				view.own_commitment_status,
+				OwnCommitmentStatus::UnexpectedOutput
+			);
+			let err = api
+				.contract_sign(m, &changed, &ContractSetupArgsAPI::default())
+				.unwrap_err();
+			match err {
+				libwallet::Error::GenericError(message) => assert_eq!(
+					message,
+					"Contract slate contains an unexpected output commitment from this wallet"
+				),
+				err => panic!("unexpected error: {}", err),
+			}
+
+			let mut changed = slate.clone();
+			changed.tx = Some(
+				changed
+					.tx_or_err()?
+					.clone()
+					.with_input(Input::new(features, output.commit))
+					.with_output(chain.get_unspent_output_at(pos).unwrap()),
+			);
+			let view = api.contract_view(m, &changed)?;
+			assert_eq!(
+				view.own_commitment_status,
+				OwnCommitmentStatus::UnexpectedInputAndOutput
+			);
+			let err = api
+				.contract_sign(m, &changed, &ContractSetupArgsAPI::default())
+				.unwrap_err();
+			match err {
+				libwallet::Error::GenericError(message) => assert_eq!(
+					message,
+					"Contract slate contains unexpected input and output commitments from this wallet"
+				),
+				err => panic!("unexpected error: {}", err),
+			}
+			Ok(())
+		},
+	)?;
 
 	// Send wallet finalizes and posts
 	wallet::controller::owner_single_use(
@@ -93,6 +259,26 @@ fn contract_srs_tx_impl(test_dir: &'static str) -> Result<(), libwallet::Error> 
 		},
 	)?;
 	assert_eq!(slate.state, SlateState::Standard3);
+	wallet::controller::owner_single_use(
+		recv_wallet.clone(),
+		recv_mask,
+		PathBuf::from(test_dir),
+		|api, m| {
+			let view = api.contract_view(m, &slate)?;
+			assert_eq!(view.own_commitment_status, OwnCommitmentStatus::Clean);
+			Ok(())
+		},
+	)?;
+	wallet::controller::owner_single_use(
+		send_wallet.clone(),
+		send_mask,
+		PathBuf::from(test_dir),
+		|api, m| {
+			let view = api.contract_view(m, &slate)?;
+			assert_eq!(view.own_commitment_status, OwnCommitmentStatus::Unknown);
+			Ok(())
+		},
+	)?;
 
 	wallet::controller::owner_single_use(
 		send_wallet.clone(),

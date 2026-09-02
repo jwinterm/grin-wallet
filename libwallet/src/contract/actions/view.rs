@@ -15,7 +15,8 @@
 //! Implementation of contract view
 
 use crate::backend::WalletBackend;
-use crate::contract::types::ContractView;
+use crate::contract;
+use crate::contract::types::{ContractView, OwnCommitmentStatus};
 use crate::error::Error;
 use crate::grin_keychain::Keychain;
 use crate::grin_util::secp::key::SecretKey;
@@ -63,13 +64,32 @@ where
 			slate.num_participants
 		)));
 	}
+	let context = match w.get_private_context(keychain_mask, slate.id.as_bytes()) {
+		Ok(context) => Some(context),
+		Err(Error::NotFoundErr(_)) => None,
+		Err(e) => return Err(e),
+	};
 	let suggested_net_change = suggested_net_change(&slate.state, slate.amount)?;
 	// A contract is executed once the transaction it produced has confirmed. That is
 	// recorded on our own tx log entry for this slate, so no chain lookup is needed; a
 	// slate we have never signed simply has no entry and is not executed.
-	let is_executed = updater::retrieve_txs(w, None, Some(slate.id), None, None, false)?
+	let txs = updater::retrieve_txs(w, None, Some(slate.id), None, None, false)?;
+	let is_executed = txs.iter().any(|tx| tx.confirmed);
+	let has_signed = txs
 		.iter()
-		.any(|tx| tx.confirmed);
+		.any(|tx| contract::utils::is_signed_tx(tx, slate.id));
+	// Once we have signed, the context identifies the commitments we added. If it has
+	// already been removed, the slate no longer carries enough information to do that.
+	let own_commitment_status = if slate.tx.is_none() || (context.is_none() && !txs.is_empty()) {
+		OwnCommitmentStatus::Unknown
+	} else {
+		contract::slate::own_commitment_status(
+			w,
+			keychain_mask,
+			slate,
+			if has_signed { context.as_ref() } else { None },
+		)?
+	};
 	// Count signatures present (a participant is "complete" once it has a partial sig).
 	let num_sigs = slate
 		.participant_data
@@ -79,11 +99,10 @@ where
 		.count();
 
 	// If we have a local context for this slate we've agreed on a net change; surface it.
-	let agreed_net_change = match w.get_private_context(keychain_mask, slate.id.as_bytes()) {
-		Ok(ctx) => ctx.setup_args.as_ref().and_then(|args| args.net_change),
-		Err(Error::NotFoundErr(_)) => None,
-		Err(e) => return Err(e),
-	};
+	let agreed_net_change = context
+		.as_ref()
+		.and_then(|context| context.setup_args.as_ref())
+		.and_then(|args| args.net_change);
 
 	// TODO: Maybe we can know if the slate was meant for us if it was encrypted for us.
 	// A possible issue is that one can encrypt the same slate for 10 people.
@@ -93,6 +112,7 @@ where
 		agreed_net_change,
 		num_sigs: num_sigs as u8,
 		is_executed: is_executed,
+		own_commitment_status,
 		..Default::default()
 	};
 	Ok(ct_view)
