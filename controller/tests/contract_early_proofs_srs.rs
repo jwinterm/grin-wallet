@@ -27,7 +27,7 @@ use grin_wallet_libwallet as libwallet;
 use impls::test_framework::{self};
 use libwallet::contract::my_fee_contribution;
 use libwallet::contract::types::{ContractNewArgsAPI, ContractSetupArgsAPI};
-use libwallet::{Slate, SlateState, Slatepacker, SlatepackerArgs, TxLogEntryType};
+use libwallet::{NodeVersionInfo, Slate, SlateState, Slatepacker, SlatepackerArgs, TxLogEntryType};
 use std::sync::atomic::Ordering;
 use std::thread;
 use std::time::Duration;
@@ -36,6 +36,21 @@ use std::time::Duration;
 mod common;
 use common::{clean_output_dir, create_wallets, setup};
 use std::path::PathBuf;
+
+fn reject_proof_verification(
+	method: grin_wallet_api::ForeignCheckMiddlewareFn,
+	_node_version: Option<NodeVersionInfo>,
+	slate: Option<&Slate>,
+) -> Result<(), libwallet::Error> {
+	assert!(matches!(
+		method,
+		grin_wallet_api::ForeignCheckMiddlewareFn::VerifyPaymentProofInvoice
+	));
+	assert!(slate.is_none());
+	Err(libwallet::Error::GenericError(
+		"Proof rejected by middleware".to_string(),
+	))
+}
 
 fn roundtrip_slate(slate: &Slate, version: u16) -> Result<Slate, libwallet::Error> {
 	let packer = Slatepacker::new(SlatepackerArgs {
@@ -213,6 +228,23 @@ fn contract_early_proofs_srs_test_impl(test_dir: &'static str) -> Result<(), lib
 
 	// Should have all proof fields filled out
 	println!("INVOICE PROOF: {}", invoice_proof_json);
+	{
+		let api = grin_wallet_api::Foreign::new(
+			recv_wallet.clone(),
+			PathBuf::from(test_dir),
+			recv_mask.cloned(),
+			Some(reject_proof_verification),
+			false,
+		);
+		let err = api
+			.verify_payment_proof_invoice(recipient_address.as_ref().unwrap(), &invoice_proof)
+			.unwrap_err();
+		assert!(matches!(
+			err,
+			libwallet::Error::GenericError(ref msg)
+				if msg == "Proof rejected by middleware"
+		));
+	}
 
 	wallet::controller::foreign_single_use(
 		recv_wallet.clone(),
