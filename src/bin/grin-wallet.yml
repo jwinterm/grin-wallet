@@ -483,17 +483,17 @@ subcommands:
                     long: no-payjoin
                     takes_value: false
                 - add-outputs:
-                    help: Defines whether we should pick inputs/outputs in the first step.
+                    help: Pick and lock inputs now and prepare outputs as unconfirmed
                     short: a
                     long: add-outputs
                     takes_value: false
                 - use-inputs:
-                    help: Which inputs you want to use (provide comma separated commitments)
+                    help: Which inputs to use and lock now (provide comma separated commitments)
                     short: i
                     long: use-inputs
                     takes_value: true
                 - make-outputs:
-                    help: Which outputs should we create? (provide comma separated amounts)
+                    help: Outputs to prepare now; they appear as unconfirmed (provide comma separated amounts)
                     short: o
                     long: make-outputs
                     takes_value: true
@@ -532,12 +532,12 @@ subcommands:
                     long: no-payjoin
                     takes_value: false
                 - use-inputs:
-                    help: Which inputs you want to use (provide comma separated commitments)
+                    help: Which inputs to use and lock when first joining (provide comma separated commitments)
                     short: i
                     long: use-inputs
                     takes_value: true
                 - make-outputs:
-                    help: Which outputs should we create? (provide comma separated amounts)
+                    help: Outputs to prepare when first joining; they appear as unconfirmed (provide comma separated amounts)
                     short: o
                     long: make-outputs
                     takes_value: true
