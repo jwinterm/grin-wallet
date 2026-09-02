@@ -98,6 +98,8 @@ where
 {
 	let mut sl = slate.clone();
 	contract::utils::verify_not_signed(w, sl.id)?;
+	// Reject terminal and unknown states before setup reserves keys.
+	contract::slate::next_state(&sl.state)?;
 
 	// Ensure net_change has been provided
 	let expected_net_change =

@@ -70,6 +70,41 @@ fn contract_srs_tx_impl(test_dir: &'static str) -> Result<(), libwallet::Error> 
 		recv_mask,
 		PathBuf::from(test_dir),
 		|api, m| {
+			let child_index = {
+				let mut wallet = api.wallet_inst.lock();
+				let wallet = wallet.lc_provider()?.wallet_inst()?;
+				let parent = wallet.parent_key_id();
+				wallet.current_child_index(&parent)?
+			};
+			let (_, txs) = api.retrieve_txs(m, false, None, None, None)?;
+			let mut invalid = slate.clone();
+			invalid.state = SlateState::Unknown;
+			let err = api
+				.contract_sign(
+					m,
+					&invalid,
+					&ContractSetupArgsAPI {
+						selection_args: common::contract_selection_args(),
+						net_change: Some(5_000_000_000),
+						..Default::default()
+					},
+				)
+				.unwrap_err();
+			assert!(matches!(
+				err,
+				libwallet::Error::GenericError(ref msg)
+					if msg == "Cannot advance a contract slate in state UN"
+			));
+			let current_child_index = {
+				let mut wallet = api.wallet_inst.lock();
+				let wallet = wallet.lc_provider()?.wallet_inst()?;
+				let parent = wallet.parent_key_id();
+				wallet.current_child_index(&parent)?
+			};
+			let (_, current_txs) = api.retrieve_txs(m, false, None, None, None)?;
+			assert_eq!(current_child_index, child_index);
+			assert_eq!(current_txs.len(), txs.len());
+
 			let wrong_args = ContractSetupArgsAPI {
 				selection_args: common::contract_selection_args(),
 				net_change: Some(-5_000_000_000),
@@ -88,7 +123,31 @@ fn contract_srs_tx_impl(test_dir: &'static str) -> Result<(), libwallet::Error> 
 				net_change: Some(5_000_000_000),
 				..Default::default()
 			};
-			slate = api.contract_sign(m, &slate, args)?;
+			let incoming = slate.clone();
+			slate = api.contract_sign(m, &incoming, args)?;
+
+			let child_index = {
+				let mut wallet = api.wallet_inst.lock();
+				let wallet = wallet.lc_provider()?.wallet_inst()?;
+				let parent = wallet.parent_key_id();
+				wallet.current_child_index(&parent)?
+			};
+			let (_, txs) = api.retrieve_txs(m, false, None, None, None)?;
+			let err = api.contract_sign(m, &incoming, args).unwrap_err();
+			assert!(matches!(
+				err,
+				libwallet::Error::GenericError(ref msg)
+					if msg == &format!("Slate with id:{} has already been signed.", incoming.id)
+			));
+			let current_child_index = {
+				let mut wallet = api.wallet_inst.lock();
+				let wallet = wallet.lc_provider()?.wallet_inst()?;
+				let parent = wallet.parent_key_id();
+				wallet.current_child_index(&parent)?
+			};
+			let (_, current_txs) = api.retrieve_txs(m, false, None, None, None)?;
+			assert_eq!(current_child_index, child_index);
+			assert_eq!(current_txs.len(), txs.len());
 			Ok(())
 		},
 	)?;

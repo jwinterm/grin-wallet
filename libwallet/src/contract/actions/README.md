@@ -73,8 +73,6 @@ Separating side effects until the 'save_step' part would make these functions mu
 
 #### Tests
 
- - signing the same slate twice, which `verify_not_signed` guards
- - invalid or inconsistent slates and unexpected states
  - slate contents at each step, not only the end state
  - the foreign API entry points for `new` and `sign`
  - Slatepack version negotiation with the last supported wallet release

@@ -438,26 +438,27 @@ where
 	Ok(())
 }
 
-/// Transition the slate state to the next one
-pub fn transition_state(slate: &mut Slate) -> Result<(), Error> {
-	// We don't really use these states right now apart from leaving it to derive expected net_change.
-	// This suggests these can't be used for manipulation. It doesn't hurt to think a bit more if that's the case.
-	let new_state = match slate.state {
+/// Return the next contract slate state
+pub(super) fn next_state(state: &SlateState) -> Result<SlateState, Error> {
+	let next = match state {
 		SlateState::Invoice1 => SlateState::Invoice2,
 		SlateState::Invoice2 => SlateState::Invoice3,
 		SlateState::Standard1 => SlateState::Standard2,
 		SlateState::Standard2 => SlateState::Standard3,
-		// Unknown, or a slate that has already reached its final state, is not something
-		// we can advance. We have signed by this point and the wallet state is persisted
-		// next, so report it rather than reporting a Standard3 that never happened.
-		ref s => {
+		// Unknown and final states cannot be advanced.
+		s => {
 			return Err(Error::GenericError(format!(
 				"Cannot advance a contract slate in state {}",
 				s
 			)))
 		}
 	};
-	slate.state = new_state;
+	Ok(next)
+}
+
+/// Transition the slate state to the next one
+pub(super) fn transition_state(slate: &mut Slate) -> Result<(), Error> {
+	slate.state = next_state(&slate.state)?;
 	// NOTE: It's possible to never reach the step3. A self-spend has only 2 steps: new -> sign.
 	Ok(())
 }

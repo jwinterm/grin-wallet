@@ -200,10 +200,7 @@ fn wallet_contract_self_spend_custom_tx() -> Result<(), libwallet::Error> {
 	Ok(())
 }
 
-#[test]
-fn contract_min_confirmations() -> Result<(), libwallet::Error> {
-	let test_dir = "test_output/contract_min_confirmations";
-	setup(test_dir);
+fn contract_min_confirmations_impl(test_dir: &'static str) -> Result<(), libwallet::Error> {
 	let (wallets, _, stopper, bh) = create_wallets(
 		vec![
 			vec![("default", 7)],
@@ -295,6 +292,14 @@ fn contract_min_confirmations() -> Result<(), libwallet::Error> {
 
 	stopper.store(false, Ordering::Relaxed);
 	thread::sleep(Duration::from_millis(200));
+	Ok(())
+}
+
+#[test]
+fn contract_min_confirmations() -> Result<(), libwallet::Error> {
+	let test_dir = "test_output/contract_min_confirmations";
+	setup(test_dir);
+	contract_min_confirmations_impl(test_dir)?;
 	clean_output_dir(test_dir);
 	Ok(())
 }
