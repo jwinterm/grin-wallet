@@ -32,12 +32,12 @@ can still receive; the fee is then taken from the received output. `--no-payjoin
 the receiver from adding an input and cannot be used together with `--use-inputs`.
 
 Inputs and outputs are normally picked when signing. `--add-outputs` picks and locks them
-during `new`, but they are still only added to the slate when signing. `--use-inputs` and
-`--make-outputs` limit the selection but do not lock anything early. Each party chooses
-`--min_conf` when it first joins and cannot change it later. The same limit is used for the fee
-estimate, so any required inputs need enough confirmations at that point. A value of `0` allows
-unconfirmed non-coinbase outputs. Open contracts do not reserve funds, so a late-locked contract
-can fail if another transaction spends the available outputs first.
+during `new`. Prepared outputs appear as unconfirmed in the wallet, but are only added to
+the slate when signing. Using `--use-inputs` or `--make-outputs` during `new` does the same.
+Each party chooses `--min_conf` when it first joins and cannot change it later. The same limit
+is used for the fee estimate, so any required inputs need enough confirmations at that point.
+A value of `0` allows unconfirmed non-coinbase outputs. Open contracts do not reserve funds,
+so a late-locked contract can fail if another transaction spends the available outputs first.
 
 ## View and revoke
 

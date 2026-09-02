@@ -257,3 +257,22 @@ fn parses_contract_min_confirmations() {
 	let parsed = grin_wallet::cmd::wallet_args::parse_contract_setup_args(sign_args).unwrap();
 	assert_eq!(parsed.minimum_confirmations, Some(3));
 }
+
+#[test]
+fn selection_locks_early() {
+	let yml = load_yaml!("../src/bin/grin-wallet.yml");
+	let app = App::from_yaml(yml);
+	let account = "default".to_string();
+	let parse = |extra: &[&str]| {
+		let mut command = vec!["grin-wallet", "contract", "new", "--send", "1"];
+		command.extend_from_slice(extra);
+		let args = app.clone().get_matches_from_safe(command).unwrap();
+		let contract = args.subcommand_matches("contract").unwrap();
+		let new_args = contract.subcommand_matches("new").unwrap();
+		grin_wallet::cmd::wallet_args::parse_contract_new_args(new_args, &account).unwrap()
+	};
+
+	assert!(!parse(&[]).add_outputs);
+	assert!(parse(&["--use-inputs", "commitment"]).add_outputs);
+	assert!(parse(&["--make-outputs", "1"]).add_outputs);
+}

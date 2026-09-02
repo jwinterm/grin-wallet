@@ -1032,7 +1032,6 @@ pub fn parse_contract_new_args(
 		parse_required(args, "minimum_confirmations")?,
 		"minimum_confirmations",
 	)?;
-	let add_outputs = args.is_present("add-outputs");
 	let as_json = args.is_present("as-json");
 	let no_payjoin = args.is_present("no-payjoin");
 	let use_inputs = match args.value_of("use-inputs") {
@@ -1065,6 +1064,10 @@ pub fn parse_contract_new_args(
 		}
 		None => None,
 	};
+	// Check the flags because use_inputs also contains the payjoin default.
+	let add_outputs = args.is_present("add-outputs")
+		|| args.is_present("use-inputs")
+		|| args.is_present("make-outputs");
 
 	let num_participants = match args.value_of("num-participants") {
 		Some(v) => v.parse::<u8>().map_err(|e| {

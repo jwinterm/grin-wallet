@@ -37,8 +37,6 @@ Separating side effects until the 'save_step' part would make these functions mu
 
 #### TODOs
 
- - Decide whether `--use-inputs` or `--make-outputs` should imply early locking; currently
-   only `--add-outputs` locks during `new`.
  - Reserve funds across open late-locked contracts, or make the possible signing failure
    clearer to callers.
  - Handle the coinbase flows. Coinbase inputs are built into the slate, but nothing else
