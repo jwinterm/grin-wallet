@@ -131,6 +131,8 @@ where
 			num_participants: 1,
 			add_outputs: false,
 			selection_args: OutputSelectionArgs {
+				// Keep revoke at one confirmation
+				minimum_confirmations: Some(1),
 				use_inputs: Some(String::from(input_commit)),
 				..Default::default()
 			},
@@ -148,6 +150,7 @@ where
 			num_participants: 1,
 			add_outputs: false,
 			selection_args: OutputSelectionArgs {
+				minimum_confirmations: Some(1),
 				use_inputs: Some(String::from(input_commit)),
 				..Default::default()
 			},

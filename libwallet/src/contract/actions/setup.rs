@@ -65,12 +65,13 @@ where
 	let mut sl = slate.clone();
 	check_ttl(w, &sl)?;
 
-	// Get or create a transaction Context and verify consistency of setup arguments
+	// Get or create the Context and check the setup arguments
 	let mut context = contract::context::get_or_create(w, keychain_mask, &mut sl, setup_args)?;
-	contract::utils::verify_setup_args_consistency(
-		&context.setup_args.as_ref().unwrap(),
-		&setup_args,
-	)?;
+	let context_args = context
+		.setup_args
+		.as_ref()
+		.ok_or_else(|| Error::GenericError("Context carries no contract setup args".to_string()))?;
+	contract::utils::verify_setup_args_consistency(context_args, setup_args)?;
 
 	// Add keys and payment proof to slate (both are idempotent operations)
 	contract::slate::add_keys(&mut sl, &w.keychain(keychain_mask)?, &mut context)?;

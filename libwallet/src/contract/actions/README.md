@@ -24,9 +24,10 @@ return slate;
 `save_step` writes the context, tx log, outputs and input locks in one LMDB batch. The
 signed transaction is stored separately outside LMDB and cannot share that batch.
 
-Custom input and output selection is only accepted during setup. `add_outputs` selects and
-locks them during setup; otherwise this happens during signing. In either case they are
-only added to the slate when signing, so the counterparty does not see them earlier.
+Input and output choices are made during setup. The confirmation limit is stored in the local
+context because it is also used for the fee estimate. `add_outputs` selects and locks inputs
+during setup; otherwise this happens during signing. The inputs and outputs are only added to
+the slate when signing, so the counterparty does not see them earlier.
 
 Ideally we'd also separate side effects out of these functions e.g. computing the current_height
 or refreshing the outputs with updater::refresh_outputs(...). The current_height could be
@@ -36,16 +37,17 @@ Separating side effects until the 'save_step' part would make these functions mu
 
 #### TODOs
 
- - Honour `min_input_confirmation`; contract input selection currently uses one confirmation.
  - Decide whether `--use-inputs` or `--make-outputs` should imply early locking; currently
    only `--add-outputs` locks during `new`.
  - Reserve funds across open late-locked contracts, or make the possible signing failure
    clearer to callers.
  - Handle the coinbase flows. Coinbase inputs are built into the slate, but nothing else
    is exercised.
+ - Keep contracts at two participants until the known multi-party attack is addressed.
  - For a payjoin, `--use-inputs any` picks an input for us; naming the commitment would be
    clearer, for the API as much as the CLI.
  - `new` has no `--no-setup`.
+ - Add custom fee rates and contract TTLs, or document them as unsupported.
  - Detect a reversed `--send` or `--receive` when signing a slate for the first time.
  - Let `view` report whether a slatepack was encrypted for this wallet.
  - Show all inputs, outputs, fees and resulting balance changes before the CLI signs.
@@ -65,19 +67,17 @@ Separating side effects until the 'save_step' part would make these functions mu
  - Decode the sender and slate from an incoming Slatepack in one pass.
  - Decide whether `target_slate_version` should control Slatepack output or be removed.
  - Add contract history, lookup by id, transport support and configurable proof memos.
+ - Decide whether the foreign JSON-RPC API should expose `new` and `sign`.
  - Add full API and RPC examples once the contract interface is stable.
  - Separate side effects out from the computation, as described above.
+ - Store transactions in LMDB so they can be committed with the wallet state.
  - Decide whether `contract_accounts_switch.rs` is a legitimate scenario, or whether
    signing under a different account than setup should error.
 
 #### Tests
 
  - signing the same slate twice, which `verify_not_signed` guards
- - zero-value outputs, and `--make-outputs` beyond what is available
- - a receiver with no spendable input, through lack of funds or of confirmations
  - invalid or inconsistent slates and unexpected states
- - the CLI conflict between `--no-payjoin` and `--use-inputs`
- - a committed fee that no longer covers the selected inputs and outputs
  - slate contents at each step, not only the end state
  - the foreign API entry points for `new` and `sign`
  - Slatepack version negotiation with the last supported wallet release

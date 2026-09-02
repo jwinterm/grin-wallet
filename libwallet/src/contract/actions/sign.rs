@@ -44,7 +44,7 @@ where
 	};
 	let will_add_outputs = existing_context
 		.as_ref()
-		.map(|context| context.get_inputs().len() + context.get_outputs().len() == 0)
+		.map(|context| !context.has_inputs_or_outputs())
 		.unwrap_or(true);
 	// Compute state for 'sign'
 	let (sl, mut context) = compute(

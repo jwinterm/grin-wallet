@@ -497,6 +497,12 @@ subcommands:
                     short: o
                     long: make-outputs
                     takes_value: true
+                - minimum_confirmations:
+                    help: Minimum confirmations required for an output; 0 allows unconfirmed outputs
+                    short: c
+                    long: min_conf
+                    default_value: "10"
+                    takes_value: true
         - sign:
             about: Sign a contract
             args:
@@ -534,6 +540,11 @@ subcommands:
                     help: Which outputs should we create? (provide comma separated amounts)
                     short: o
                     long: make-outputs
+                    takes_value: true
+                - minimum_confirmations:
+                    help: Minimum confirmations when first joining the contract; 0 allows unconfirmed outputs
+                    short: c
+                    long: min_conf
                     takes_value: true
                 - no-broadcast:
                     help: Don't broadcast the transaction if it was finalized

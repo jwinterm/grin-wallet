@@ -69,6 +69,7 @@ fn contract_early_proofs_srs_test_impl(test_dir: &'static str) -> Result<(), lib
 			// Send wallet inititates a standard transaction with --send=5
 			let args = &ContractNewArgsAPI {
 				setup_args: ContractSetupArgsAPI {
+					selection_args: common::contract_selection_args(),
 					net_change: Some(-5_000_000_000),
 					..Default::default()
 				},
@@ -90,6 +91,7 @@ fn contract_early_proofs_srs_test_impl(test_dir: &'static str) -> Result<(), lib
 		|api, m| {
 			// Receive wallet calls --receive=5
 			let args = &mut ContractSetupArgsAPI {
+				selection_args: common::contract_selection_args(),
 				net_change: Some(5_000_000_000),
 				..Default::default()
 			};
@@ -112,6 +114,7 @@ fn contract_early_proofs_srs_test_impl(test_dir: &'static str) -> Result<(), lib
 		PathBuf::from(test_dir),
 		|api, m| {
 			let args = &ContractSetupArgsAPI {
+				selection_args: common::contract_selection_args(),
 				..Default::default()
 			};
 			let mut tampered = slate.clone();

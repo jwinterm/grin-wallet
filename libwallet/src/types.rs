@@ -494,6 +494,11 @@ impl Context {
 		self.input_ids.clone()
 	}
 
+	/// Whether inputs or outputs have already been selected for this context
+	pub fn has_inputs_or_outputs(&self) -> bool {
+		!self.input_ids.is_empty() || !self.output_ids.is_empty()
+	}
+
 	/// Returns private key, private nonce
 	pub fn get_private_keys(&self) -> (SecretKey, SecretKey) {
 		(self.sec_key.clone(), self.sec_nonce.clone())

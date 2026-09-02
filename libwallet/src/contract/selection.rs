@@ -36,16 +36,22 @@ where
 	K: Keychain,
 {
 	// Find available inputs
-	let mut eligible_inputs = find_eligible(w, parent_key_id, current_height)?;
+	let mut eligible_inputs = find_eligible(
+		w,
+		parent_key_id,
+		current_height,
+		setup_args.selection_args.effective_minimum_confirmations(),
+	)?;
 	// Select which inputs to use to satisfy the equation
 	compute(setup_args, committed_fee, &mut eligible_inputs)
 }
 
 /// Find all inputs eligible to spend
 pub fn find_eligible<C, K>(
-	w: &mut WalletBackend<C, K>,
+	w: &WalletBackend<C, K>,
 	parent_key_id: &Identifier,
 	current_height: u64,
+	minimum_confirmations: u64,
 ) -> Result<Vec<OutputData>, Error>
 where
 	C: NodeClient,
@@ -54,7 +60,10 @@ where
 	// Find eligible inputs in the wallet
 	let eligible_inputs = w
 		.iter()?
-		.filter(|out| out.root_key_id == *parent_key_id && out.eligible_to_spend(current_height, 1))
+		.filter(|out| {
+			out.root_key_id == *parent_key_id
+				&& out.eligible_to_spend(current_height, minimum_confirmations)
+		})
 		.collect::<Vec<OutputData>>();
 	Ok(eligible_inputs)
 }
@@ -331,16 +340,28 @@ pub fn verify_selection_consistency(
 	ctx_args: &OutputSelectionArgs,
 	cur_args: &OutputSelectionArgs,
 ) -> Result<(), Error> {
-	// We can't define a selection strategy if we've already done the setup phase. We only allow to pass either the
-	// default or exactly the same strategy we defined when doing the setup phase.
-	if cur_args != ctx_args && cur_args != &OutputSelectionArgs::default() {
+	// Input and output choices are fixed during setup
+	let strategy_changed = cur_args.use_inputs != ctx_args.use_inputs
+		|| cur_args.make_outputs != ctx_args.make_outputs;
+	let defaults = OutputSelectionArgs::default();
+	let default_strategy = cur_args.use_inputs == defaults.use_inputs
+		&& cur_args.make_outputs == defaults.make_outputs;
+	if strategy_changed && !default_strategy {
 		return Err(Error::GenericError(format!(
 			"Can't define selection args now because we've already done the setup phase. ctx_selection_args:{:#?}, cur_selection_args:{:#?}",
 			ctx_args, cur_args
 		)));
 	}
-	// NOTE: The logic above isn't perfect. This is because the user could define arguments that are the default. In this case
-	// we'd simply silently use the arguments provided in the setup phase. This could be confusing for the user.
+	if let Some(minimum) = cur_args.minimum_confirmations {
+		if minimum != ctx_args.effective_minimum_confirmations() {
+			return Err(Error::GenericError(format!(
+				"Can't change minimum confirmations after contract setup. setup:{}, current:{}",
+				ctx_args.effective_minimum_confirmations(),
+				minimum
+			)));
+		}
+	}
+	// An explicit default cannot be distinguished from omitted arguments
 	Ok(())
 }
 
@@ -430,6 +451,16 @@ mod tests {
 		};
 		let mut inputs = _create_output_data_for(vec![u64::MAX, 1]);
 		assert!(compute(&setup_args, None, &mut inputs).is_err());
+
+		let setup_args = ContractSetupArgsAPI {
+			net_change: Some(0),
+			selection_args: OutputSelectionArgs {
+				make_outputs: Some(vec![u64::MAX, 1]),
+				..Default::default()
+			},
+			..Default::default()
+		};
+		assert!(compute(&setup_args, None, &mut vec![]).is_err());
 	}
 
 	#[test]
@@ -580,6 +611,34 @@ mod tests {
 	}
 
 	#[test]
+	fn receiver_without_input() {
+		let setup_args = ContractSetupArgsAPI {
+			net_change: Some(3_000_000_000),
+			..Default::default()
+		};
+		let expected_fee = my_fee_contribution(0, 1, 1, 2).unwrap();
+		let result = compute(&setup_args, None, &mut vec![]).unwrap();
+
+		assert_eq!(
+			result,
+			(
+				vec![],
+				vec![3_000_000_000 - expected_fee.fee()],
+				expected_fee,
+			)
+		);
+
+		let setup_args = ContractSetupArgsAPI {
+			net_change: Some(expected_fee.fee() as i64 - 1),
+			..Default::default()
+		};
+		assert!(matches!(
+			compute(&setup_args, None, &mut vec![]),
+			Err(Error::NotEnoughFunds { .. })
+		));
+	}
+
+	#[test]
 	fn sender_use_inputs_ok() {
 		let setup_args = ContractSetupArgsAPI {
 			// we expect to receive exactly our fee contribution my_fees(1, 1)
@@ -677,6 +736,50 @@ mod tests {
 	}
 
 	#[test]
+	fn custom_output_limits() {
+		let setup_args = ContractSetupArgsAPI {
+			net_change: Some(-1_000_000_000),
+			selection_args: OutputSelectionArgs {
+				make_outputs: Some(vec![0]),
+				..Default::default()
+			},
+			..Default::default()
+		};
+		let mut inputs = _create_output_data_for(vec![2_000_000_000]);
+		let (_, outputs, _) = compute(&setup_args, None, &mut inputs).unwrap();
+		assert_eq!(outputs[0], 0);
+
+		let setup_args = ContractSetupArgsAPI {
+			net_change: Some(-1_000_000_000),
+			selection_args: OutputSelectionArgs {
+				make_outputs: Some(vec![2_000_000_000]),
+				..Default::default()
+			},
+			..Default::default()
+		};
+		let mut inputs = _create_output_data_for(vec![2_000_000_000]);
+		assert!(matches!(
+			compute(&setup_args, None, &mut inputs),
+			Err(Error::NotEnoughFunds { .. })
+		));
+	}
+
+	#[test]
+	fn committed_fee_too_low() {
+		let setup_args = ContractSetupArgsAPI {
+			net_change: Some(-3_000_000_000),
+			..Default::default()
+		};
+		let committed_fee = my_fee_contribution(1, 1, 1, 2).unwrap();
+		let mut inputs = _create_output_data_for(vec![2_000_000_000, 2_000_000_000]);
+
+		assert!(matches!(
+			compute(&setup_args, Some(committed_fee), &mut inputs),
+			Err(Error::Fee(_))
+		));
+	}
+
+	#[test]
 	fn selection_args_consistency() {
 		// Selection args agreed at the setup phase (stored in the Context).
 		let ctx_args = OutputSelectionArgs {
@@ -693,25 +796,26 @@ mod tests {
 			..Default::default()
 		};
 		assert!(verify_selection_consistency(&ctx_args, &changed).is_err());
+
+		let changed_confirmations = OutputSelectionArgs {
+			minimum_confirmations: Some(3),
+			use_inputs: ctx_args.use_inputs.clone(),
+			..Default::default()
+		};
+		assert!(verify_selection_consistency(&ctx_args, &changed_confirmations).is_err());
+
+		let omitted_confirmations = OutputSelectionArgs {
+			minimum_confirmations: None,
+			use_inputs: ctx_args.use_inputs.clone(),
+			..Default::default()
+		};
+		assert!(verify_selection_consistency(&ctx_args, &omitted_confirmations).is_ok());
+
+		let same_confirmations = OutputSelectionArgs {
+			minimum_confirmations: Some(ctx_args.effective_minimum_confirmations()),
+			use_inputs: ctx_args.use_inputs.clone(),
+			..Default::default()
+		};
+		assert!(verify_selection_consistency(&ctx_args, &same_confirmations).is_ok());
 	}
-
-	/*
-
-	Tests to add:
-	- compute_receiver_invariant - test that receiving_amount - my_fees >= 0 (to prevent going into negative accidentally)
-	- compute_sender_invariant - test that -send_amount - my_fees < 0 (do you need this one and is it correct?)
-	- compute_receiver_payjoin_negative_fee - could the receiver receive a negative amount through fees? but the thing
-	  would go through because they made a payjoin so they could pay for the fees?
-	- compute_receiver_omit_payjoin - we can't contribute an input, but have enough for other fees
-	- compute_make_outputs_fee_err - fail due to not enough funds for fees
-	- compute_make_outputs_sum_err - is this even possible?
-	- compute_zero_value_outputs_sender - sender uses all 0-value outputs when sending
-	- compute_zero_value_inputs_receiver - receiver uses 0-value inputs in payjoin
-	- test_fee_committed_err - we have already committed to a certain fee which we no longer satisfy
-	- think if we should have sender/receiver separate testing
-	- sender_use_all_features
-	- coinbase output cases
-	- validate --make-outputs has all positive u64 numbers
-
-	*/
 }

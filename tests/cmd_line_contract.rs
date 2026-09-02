@@ -112,6 +112,8 @@ fn contract_command_test_impl(test_dir: &str) -> Result<(), grin_wallet_controll
 		"new",
 		"--send",
 		"1",
+		"--min_conf",
+		"1",
 	];
 	execute_command(&app, test_dir, "wallet1", &client1, arg_vec)?;
 
@@ -164,4 +166,94 @@ fn wallet_contract_command_line() {
 		panic!("Libwallet Error: {}", e);
 	}
 	clean_output_dir(test_dir);
+}
+
+#[test]
+fn rejects_conflicting_input_options() {
+	let yml = load_yaml!("../src/bin/grin-wallet.yml");
+	let app = App::from_yaml(yml);
+	let account = "default".to_string();
+	let args = app
+		.clone()
+		.get_matches_from_safe(vec![
+			"grin-wallet",
+			"contract",
+			"new",
+			"--send",
+			"1",
+			"--no-payjoin",
+			"--use-inputs",
+			"commitment",
+		])
+		.unwrap();
+	let contract = args.subcommand_matches("contract").unwrap();
+	let new_args = contract.subcommand_matches("new").unwrap();
+
+	assert!(grin_wallet::cmd::wallet_args::parse_contract_new_args(new_args, &account).is_err());
+
+	let args = app
+		.get_matches_from_safe(vec![
+			"grin-wallet",
+			"contract",
+			"sign",
+			"--no-payjoin",
+			"--use-inputs",
+			"commitment",
+		])
+		.unwrap();
+	let contract = args.subcommand_matches("contract").unwrap();
+	let sign_args = contract.subcommand_matches("sign").unwrap();
+	assert!(grin_wallet::cmd::wallet_args::parse_contract_setup_args(sign_args).is_err());
+}
+
+#[test]
+fn parses_contract_min_confirmations() {
+	let yml = load_yaml!("../src/bin/grin-wallet.yml");
+	let app = App::from_yaml(yml);
+	let account = "default".to_string();
+	let args = app
+		.clone()
+		.get_matches_from_safe(vec![
+			"grin-wallet",
+			"contract",
+			"new",
+			"--send",
+			"1",
+			"--min_conf",
+			"3",
+		])
+		.unwrap();
+	let contract = args.subcommand_matches("contract").unwrap();
+	let new_args = contract.subcommand_matches("new").unwrap();
+	let parsed =
+		grin_wallet::cmd::wallet_args::parse_contract_new_args(new_args, &account).unwrap();
+	assert_eq!(parsed.minimum_confirmations, 3);
+
+	let expected = grin_wallet_libwallet::contract::types::DEFAULT_MINIMUM_CONFIRMATIONS;
+	let args = app
+		.clone()
+		.get_matches_from_safe(vec!["grin-wallet", "contract", "new", "--send", "1"])
+		.unwrap();
+	let contract = args.subcommand_matches("contract").unwrap();
+	let new_args = contract.subcommand_matches("new").unwrap();
+	let parsed =
+		grin_wallet::cmd::wallet_args::parse_contract_new_args(new_args, &account).unwrap();
+	assert_eq!(parsed.minimum_confirmations, expected);
+
+	let args = app
+		.clone()
+		.get_matches_from_safe(vec!["grin-wallet", "contract", "sign"])
+		.unwrap();
+	let contract = args.subcommand_matches("contract").unwrap();
+	let sign_args = contract.subcommand_matches("sign").unwrap();
+	let parsed = grin_wallet::cmd::wallet_args::parse_contract_setup_args(sign_args).unwrap();
+	assert_eq!(parsed.minimum_confirmations, None);
+
+	let args = app
+		.get_matches_from_safe(vec!["grin-wallet", "contract", "sign", "--min_conf", "3"])
+		.unwrap();
+	let contract = args.subcommand_matches("contract").unwrap();
+	let sign_args = contract.subcommand_matches("sign").unwrap();
+	let parsed = grin_wallet::cmd::wallet_args::parse_contract_setup_args(sign_args).unwrap();
+	assert_eq!(parsed.minimum_confirmations, Some(3));
 }

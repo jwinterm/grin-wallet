@@ -1028,6 +1028,10 @@ pub fn parse_contract_new_args(
 		)));
 	};
 	let src_acct_name = Some(String::from(account));
+	let minimum_confirmations = parse_u64(
+		parse_required(args, "minimum_confirmations")?,
+		"minimum_confirmations",
+	)?;
 	let add_outputs = args.is_present("add-outputs");
 	let as_json = args.is_present("as-json");
 	let no_payjoin = args.is_present("no-payjoin");
@@ -1044,7 +1048,7 @@ pub fn parse_contract_new_args(
 			if no_payjoin {
 				None
 			} else {
-				// Some("any") means pick 1 random input to contribute (payjoin)
+				// Some("any") means pick an available input to contribute (payjoin)
 				Some(String::from("any"))
 			}
 		}
@@ -1079,6 +1083,7 @@ pub fn parse_contract_new_args(
 		add_outputs: add_outputs,
 		use_inputs: use_inputs,
 		make_outputs: make_outputs,
+		minimum_confirmations,
 		// Not yet wired to CLI flags:
 		fee_rate: None,
 		outfile: None,
@@ -1107,6 +1112,10 @@ pub fn parse_contract_setup_args(
 		)));
 	};
 	let as_json = args.is_present("as-json");
+	let minimum_confirmations = match args.value_of("minimum_confirmations") {
+		Some(value) => Some(parse_u64(value, "minimum_confirmations")?),
+		None => None,
+	};
 	let no_payjoin = args.is_present("no-payjoin");
 	let use_inputs = match args.value_of("use-inputs") {
 		Some(v) => {
@@ -1121,7 +1130,7 @@ pub fn parse_contract_setup_args(
 			if no_payjoin {
 				None
 			} else {
-				// Some("any") means pick 1 random input to contribute (payjoin)
+				// Some("any") means pick an available input to contribute (payjoin)
 				Some(String::from("any"))
 			}
 		}
@@ -1148,6 +1157,7 @@ pub fn parse_contract_setup_args(
 		add_outputs: false,
 		use_inputs: use_inputs,
 		make_outputs: make_outputs,
+		minimum_confirmations,
 		// Not yet wired to CLI flags:
 		fee_rate: None,
 		outfile: None,

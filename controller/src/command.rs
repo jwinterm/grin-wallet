@@ -1694,6 +1694,8 @@ pub struct ContractNewArgs {
 	pub use_inputs: Option<String>,
 	/// Output amounts in nanogrin (one entry per output)
 	pub make_outputs: Option<Vec<u64>>,
+	/// Minimum number of confirmations required for an input
+	pub minimum_confirmations: u64,
 
 	// Future features
 	/// Custom fee contribution
@@ -1733,6 +1735,7 @@ impl ContractNewArgs {
 				num_participants: self.num_participants,
 				add_outputs: self.add_outputs,
 				selection_args: OutputSelectionArgs {
+					minimum_confirmations: Some(self.minimum_confirmations),
 					use_inputs: match self.use_inputs.as_ref() {
 						Some(v) => Some(v.to_string()),
 						None => None,
@@ -1794,6 +1797,8 @@ pub struct ContractSetupArgs {
 	pub use_inputs: Option<String>,
 	/// Output amounts in nanogrin (one entry per output)
 	pub make_outputs: Option<Vec<u64>>,
+	/// Optional minimum number of confirmations required for an input
+	pub minimum_confirmations: Option<u64>,
 
 	// Future features
 	/// Whether we should automatically sign a receive of any value
@@ -1831,6 +1836,7 @@ impl ContractSetupArgs {
 			net_change: net_change,
 			add_outputs: self.add_outputs,
 			selection_args: OutputSelectionArgs {
+				minimum_confirmations: self.minimum_confirmations,
 				use_inputs: match self.use_inputs.as_ref() {
 					Some(v) => Some(v.to_string()),
 					None => None,

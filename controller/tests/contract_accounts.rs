@@ -169,6 +169,7 @@ fn contract_accounts_impl(test_dir: &'static str) -> Result<(), libwallet::Error
 			// Send wallet inititates a standard transaction with --send=5
 			let args = &ContractNewArgsAPI {
 				setup_args: ContractSetupArgsAPI {
+					selection_args: common::contract_selection_args(),
 					net_change: Some(-5_000_000_000),
 					..Default::default()
 				},
@@ -189,6 +190,7 @@ fn contract_accounts_impl(test_dir: &'static str) -> Result<(), libwallet::Error
 		|api, m| {
 			// Receive wallet calls --receive=5
 			let args = &mut ContractSetupArgsAPI {
+				selection_args: common::contract_selection_args(),
 				net_change: Some(5_000_000_000),
 				..Default::default()
 			};
@@ -209,6 +211,7 @@ fn contract_accounts_impl(test_dir: &'static str) -> Result<(), libwallet::Error
 		PathBuf::from(test_dir),
 		|api, m| {
 			let args = &ContractSetupArgsAPI {
+				selection_args: common::contract_selection_args(),
 				..Default::default()
 			};
 			slate = api.contract_sign(m, &slate, args)?;
@@ -331,6 +334,7 @@ fn contract_unknown_account_impl(test_dir: &'static str) -> Result<(), libwallet
 		|api, m| {
 			let args = &ContractNewArgsAPI {
 				setup_args: ContractSetupArgsAPI {
+					selection_args: common::contract_selection_args(),
 					net_change: Some(-1_000_000_000),
 					src_acct_name: Some("does_not_exist".to_string()),
 					..Default::default()
@@ -372,6 +376,7 @@ fn contract_missing_net_change_impl(test_dir: &'static str) -> Result<(), libwal
 		|api, m| {
 			let args = &ContractNewArgsAPI {
 				setup_args: ContractSetupArgsAPI {
+					selection_args: common::contract_selection_args(),
 					net_change: None,
 					..Default::default()
 				},

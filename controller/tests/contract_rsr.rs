@@ -52,6 +52,7 @@ fn contract_rsr_tx_impl(test_dir: &'static str) -> Result<(), libwallet::Error> 
 			// Receive wallet inititates an invoice transaction with --receive=5
 			let args = &mut ContractNewArgsAPI {
 				setup_args: ContractSetupArgsAPI {
+					selection_args: common::contract_selection_args(),
 					net_change: Some(5_000_000_000),
 					..Default::default()
 				},
@@ -70,6 +71,7 @@ fn contract_rsr_tx_impl(test_dir: &'static str) -> Result<(), libwallet::Error> 
 		|api, m| {
 			// Send Wallet calls --send=5
 			let args = &ContractSetupArgsAPI {
+				selection_args: common::contract_selection_args(),
 				net_change: Some(-5_000_000_000),
 				..Default::default()
 			};
@@ -86,6 +88,7 @@ fn contract_rsr_tx_impl(test_dir: &'static str) -> Result<(), libwallet::Error> 
 		PathBuf::from(test_dir),
 		|api, m| {
 			let args = &mut ContractSetupArgsAPI {
+				selection_args: common::contract_selection_args(),
 				..Default::default()
 			};
 			slate = api.contract_sign(m, &slate, args)?;

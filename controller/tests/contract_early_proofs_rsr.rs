@@ -81,6 +81,7 @@ fn contract_early_proofs_rsr_test_impl(test_dir: &'static str) -> Result<(), lib
 			// Receive wallet (invoice) calls --receive=5
 			let args = &mut ContractNewArgsAPI {
 				setup_args: ContractSetupArgsAPI {
+					selection_args: common::contract_selection_args(),
 					net_change: Some(5_000_000_000),
 					..Default::default()
 				},
@@ -106,6 +107,7 @@ fn contract_early_proofs_rsr_test_impl(test_dir: &'static str) -> Result<(), lib
 		|api, m| {
 			// Sending wallet (invoice) signs
 			let args = &ContractSetupArgsAPI {
+				selection_args: common::contract_selection_args(),
 				net_change: Some(-5_000_000_000),
 				..Default::default()
 			};
@@ -125,6 +127,7 @@ fn contract_early_proofs_rsr_test_impl(test_dir: &'static str) -> Result<(), lib
 		PathBuf::from(test_dir),
 		|api, m| {
 			let args = &ContractSetupArgsAPI {
+				selection_args: common::contract_selection_args(),
 				..Default::default()
 			};
 			slate = api.contract_sign(m, &slate, args)?;

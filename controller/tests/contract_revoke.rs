@@ -49,6 +49,7 @@ fn contract_revoke_other_account_impl(test_dir: &'static str) -> Result<(), libw
 				m,
 				&ContractNewArgsAPI {
 					setup_args: ContractSetupArgsAPI {
+						selection_args: common::contract_selection_args(),
 						net_change: Some(-1_000_000_000),
 						num_participants: 2,
 						add_outputs: true,
@@ -85,6 +86,7 @@ fn contract_revoke_other_account_impl(test_dir: &'static str) -> Result<(), libw
 		|api, m| {
 			let args = &ContractNewArgsAPI {
 				setup_args: ContractSetupArgsAPI {
+					selection_args: common::contract_selection_args(),
 					net_change: Some(-1_000_000_000),
 					num_participants: 2,
 					add_outputs: true,
@@ -215,6 +217,7 @@ fn contract_revoke_resume_impl(test_dir: &'static str) -> Result<(), libwallet::
 		|api, m| {
 			let args = &ContractNewArgsAPI {
 				setup_args: ContractSetupArgsAPI {
+					selection_args: common::contract_selection_args(),
 					net_change: Some(-1_000_000_000),
 					num_participants: 2,
 					add_outputs: true,

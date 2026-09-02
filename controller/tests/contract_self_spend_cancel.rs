@@ -48,6 +48,7 @@ fn contract_self_spend_cancel_impl(test_dir: &'static str) -> Result<(), libwall
 			// Send wallet initiates a standard transaction with --send=0
 			let args = &ContractNewArgsAPI {
 				setup_args: ContractSetupArgsAPI {
+					selection_args: common::contract_selection_args(),
 					net_change: Some(0),
 					num_participants: 1,
 					..Default::default()
@@ -137,6 +138,7 @@ fn contract_self_spend_cancel_missing_stored_tx_impl(
 		|api, m| {
 			let args = &ContractNewArgsAPI {
 				setup_args: ContractSetupArgsAPI {
+					selection_args: common::contract_selection_args(),
 					net_change: Some(0),
 					num_participants: 1,
 					..Default::default()
@@ -155,6 +157,7 @@ fn contract_self_spend_cancel_missing_stored_tx_impl(
 		PathBuf::from(test_dir),
 		|api, m| {
 			let args = &ContractSetupArgsAPI {
+				selection_args: common::contract_selection_args(),
 				..Default::default()
 			};
 			slate = api.contract_sign(m, &slate, args)?;

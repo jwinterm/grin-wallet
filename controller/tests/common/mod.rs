@@ -87,6 +87,15 @@ pub fn clean_output_dir(test_dir: &str) {
 	}
 }
 
+#[allow(dead_code)]
+pub fn contract_selection_args() -> libwallet::contract::types::OutputSelectionArgs {
+	// Contract fixtures mine only a few blocks.
+	libwallet::contract::types::OutputSelectionArgs {
+		minimum_confirmations: Some(1),
+		..Default::default()
+	}
+}
+
 pub fn setup(test_dir: &str) {
 	util::init_test_logger();
 	clean_output_dir(test_dir);

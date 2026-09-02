@@ -62,7 +62,7 @@ fn contract_self_spend_custom_tx_impl(test_dir: &'static str) -> Result<(), libw
 	let mut slate = Slate::blank(0, true); // this gets overriden below
 
 	let selection_args = OutputSelectionArgs {
-		min_input_confirmation: 0,
+		minimum_confirmations: Some(0),
 		use_inputs: Some(use_inputs.clone()), // we will use two coinbase inputs
 		// the sum is such that it will need to pick another input making total of 3 inputs
 		make_outputs: Some(vec![
@@ -100,7 +100,10 @@ fn contract_self_spend_custom_tx_impl(test_dir: &'static str) -> Result<(), libw
 		send_mask,
 		PathBuf::from(test_dir),
 		|api, m| {
+			let mut current_selection = selection_args.clone();
+			current_selection.minimum_confirmations = None;
 			let args = &ContractSetupArgsAPI {
+				selection_args: current_selection,
 				..Default::default()
 			};
 			slate = api.contract_sign(m, &slate, args)?;
@@ -193,6 +196,105 @@ fn wallet_contract_self_spend_custom_tx() -> Result<(), libwallet::Error> {
 	let test_dir = "test_output/contract_self_spend_custom_tx";
 	setup(test_dir);
 	contract_self_spend_custom_tx_impl(test_dir)?;
+	clean_output_dir(test_dir);
+	Ok(())
+}
+
+#[test]
+fn contract_min_confirmations() -> Result<(), libwallet::Error> {
+	let test_dir = "test_output/contract_min_confirmations";
+	setup(test_dir);
+	let (wallets, _, stopper, bh) = create_wallets(
+		vec![
+			vec![("default", 7)],
+			vec![("default", 1)],
+			vec![("default", 3)],
+		],
+		test_dir,
+	)
+	.unwrap();
+	let send_wallet = wallets[0].0.clone();
+	let send_mask = wallets[0].1.as_ref();
+	let recv_wallet = wallets[1].0.clone();
+	let recv_mask = wallets[1].1.as_ref();
+	let mut slate = Slate::blank(0, true);
+
+	wallet::controller::owner_single_use(
+		send_wallet.clone(),
+		send_mask,
+		PathBuf::from(test_dir),
+		|api, m| {
+			slate = api.contract_new(
+				m,
+				&ContractNewArgsAPI {
+					setup_args: ContractSetupArgsAPI {
+						net_change: Some(-(consensus::GRIN_BASE as i64)),
+						selection_args: OutputSelectionArgs {
+							minimum_confirmations: Some(10),
+							..Default::default()
+						},
+						..Default::default()
+					},
+				},
+			)?;
+			Ok(())
+		},
+	)?;
+	assert_eq!(slate.state, SlateState::Standard1);
+
+	wallet::controller::owner_single_use(
+		recv_wallet,
+		recv_mask,
+		PathBuf::from(test_dir),
+		|api, m| {
+			let (_, outputs) = api.retrieve_outputs(m, true, false, None)?;
+			assert_eq!(outputs.len(), 1);
+			assert!(outputs[0].output.eligible_to_spend(bh, 1));
+			assert!(!outputs[0].output.eligible_to_spend(bh, 10));
+			slate = api.contract_sign(
+				m,
+				&slate,
+				&ContractSetupArgsAPI {
+					net_change: Some(consensus::GRIN_BASE as i64),
+					selection_args: OutputSelectionArgs {
+						minimum_confirmations: Some(10),
+						..Default::default()
+					},
+					..Default::default()
+				},
+			)?;
+			Ok(())
+		},
+	)?;
+	assert_eq!(slate.state, SlateState::Standard2);
+	assert_eq!(slate.tx_or_err()?.inputs().len(), 0);
+
+	wallet::controller::owner_single_use(
+		send_wallet,
+		send_mask,
+		PathBuf::from(test_dir),
+		|api, m| {
+			let args = |minimum| ContractSetupArgsAPI {
+				selection_args: OutputSelectionArgs {
+					minimum_confirmations: minimum,
+					..Default::default()
+				},
+				..Default::default()
+			};
+			let err = api.contract_sign(m, &slate, &args(Some(12))).unwrap_err();
+			assert!(matches!(
+				err,
+				libwallet::Error::GenericError(ref msg)
+					if msg == "Can't change minimum confirmations after contract setup. setup:10, current:12"
+			));
+			slate = api.contract_sign(m, &slate, &args(None))?;
+			Ok(())
+		},
+	)?;
+	assert_eq!(slate.state, SlateState::Standard3);
+
+	stopper.store(false, Ordering::Relaxed);
+	thread::sleep(Duration::from_millis(200));
 	clean_output_dir(test_dir);
 	Ok(())
 }

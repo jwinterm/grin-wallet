@@ -50,6 +50,7 @@ fn contract_self_spend_tx_impl(test_dir: &'static str) -> Result<(), libwallet::
 			// Send wallet inititates a standard transaction with --send=0
 			let args = &ContractNewArgsAPI {
 				setup_args: ContractSetupArgsAPI {
+					selection_args: common::contract_selection_args(),
 					net_change: Some(0),
 					num_participants: 1,
 					..Default::default()
@@ -69,6 +70,7 @@ fn contract_self_spend_tx_impl(test_dir: &'static str) -> Result<(), libwallet::
 		PathBuf::from(test_dir),
 		|api, m| {
 			let args = &ContractSetupArgsAPI {
+				selection_args: common::contract_selection_args(),
 				..Default::default()
 			};
 			slate = api.contract_sign(m, &slate, args)?;

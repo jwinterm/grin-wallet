@@ -19,11 +19,15 @@ pub use crate::slate::PaymentProofType as ProofType;
 use crate::slate_versions::ser as dalek_ser;
 use ed25519_dalek::VerifyingKey as DalekPublicKey;
 
+/// Default confirmations for contract inputs
+/// Keep in sync with contract new in grin-wallet.yml
+pub const DEFAULT_MINIMUM_CONFIRMATIONS: u64 = 10;
+
 /// Output selection args
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct OutputSelectionArgs {
-	/// Constraint on how many confirmations used inputs must have
-	pub min_input_confirmation: u64,
+	/// Required confirmations, or None to use the stored value or default
+	pub minimum_confirmations: Option<u64>,
 	/// Which inputs we want to use - default to payjoin if available with Some("any")
 	pub use_inputs: Option<String>,
 	/// Change output specification: explicit output amounts in nanogrin, not including
@@ -32,6 +36,12 @@ pub struct OutputSelectionArgs {
 }
 
 impl OutputSelectionArgs {
+	/// Number of confirmations required when selecting inputs
+	pub fn effective_minimum_confirmations(&self) -> u64 {
+		self.minimum_confirmations
+			.unwrap_or(DEFAULT_MINIMUM_CONFIRMATIONS)
+	}
+
 	/// We try to make a payjoin if use_inputs has a value (either commitments or Some("any"))
 	pub fn is_payjoin(&self) -> bool {
 		self.use_inputs.is_some()
@@ -70,7 +80,7 @@ impl OutputSelectionArgs {
 impl Default for OutputSelectionArgs {
 	fn default() -> OutputSelectionArgs {
 		OutputSelectionArgs {
-			min_input_confirmation: 10,
+			minimum_confirmations: None,
 			use_inputs: Some(String::from("any")),
 			make_outputs: None,
 		}
@@ -229,6 +239,28 @@ pub struct ContractRevokeArgsAPI {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn selection_args_json() {
+		let explicit: OutputSelectionArgs = serde_json::from_value(serde_json::json!({
+			"minimum_confirmations": 3,
+			"use_inputs": "any",
+			"make_outputs": null
+		}))
+		.unwrap();
+		assert_eq!(explicit.minimum_confirmations, Some(3));
+
+		let omitted: OutputSelectionArgs = serde_json::from_value(serde_json::json!({
+			"use_inputs": "any",
+			"make_outputs": null
+		}))
+		.unwrap();
+		assert_eq!(omitted.minimum_confirmations, None);
+		assert_eq!(
+			omitted.effective_minimum_confirmations(),
+			DEFAULT_MINIMUM_CONFIRMATIONS
+		);
+	}
 
 	#[test]
 	fn own_commitment_status_json() {

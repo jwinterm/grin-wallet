@@ -68,6 +68,7 @@ fn contract_early_lock_tx_impl(test_dir: &'static str) -> Result<(), libwallet::
 			// Send wallet inititates a standard transaction with --send=80
 			let args = &ContractNewArgsAPI {
 				setup_args: ContractSetupArgsAPI {
+					selection_args: common::contract_selection_args(),
 					net_change: Some(-80_000_000_000),
 					num_participants: 2,
 					add_outputs: true,
@@ -115,6 +116,7 @@ fn contract_early_lock_tx_impl(test_dir: &'static str) -> Result<(), libwallet::
 				m,
 				&slate,
 				&ContractSetupArgsAPI {
+					selection_args: common::contract_selection_args(),
 					net_change: Some(80_000_000_000),
 					..Default::default()
 				},

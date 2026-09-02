@@ -150,7 +150,7 @@ where
 	debug!("contract::utils::add_outputs => called");
 	// Do nothing if we have already contributed our outputs. The assumption is that if this was done,
 	// our output contribution is complete.
-	if context.output_ids.len() > 0 || context.input_ids.len() > 0 {
+	if context.has_inputs_or_outputs() {
 		debug!("contract::utils::add_outputs => outputs have already been added, returning.");
 		return Ok(());
 	}
