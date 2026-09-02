@@ -14,6 +14,7 @@
 
 //! Implementation of contract sign
 
+use super::initial_net_change;
 use crate::backend::WalletBackend;
 use crate::contract;
 use crate::contract::actions::setup;
@@ -21,8 +22,30 @@ use crate::contract::types::ContractSetupArgsAPI;
 use crate::error::Error;
 use crate::grin_keychain::Keychain;
 use crate::grin_util::secp::key::SecretKey;
-use crate::slate::Slate;
+use crate::slate::{Slate, SlateState};
 use crate::types::{Context, NodeClient};
+
+fn verify_first_sign_net_change(
+	state: &SlateState,
+	amount: u64,
+	net_change: i64,
+) -> Result<(), Error> {
+	if let Some(expected) = initial_net_change(state, amount)? {
+		if net_change != expected {
+			let reversed = expected.checked_neg() == Some(net_change);
+			let hint = match state {
+				SlateState::Standard1 if reversed => " (did you mean --receive instead of --send?)",
+				SlateState::Invoice1 if reversed => " (did you mean --send instead of --receive?)",
+				_ => "",
+			};
+			return Err(Error::GenericError(format!(
+				"Expected net change {}, got {}{}",
+				expected, net_change, hint
+			)));
+		}
+	}
+	Ok(())
+}
 
 /// Sign a contract
 pub fn sign<C, K>(
@@ -79,6 +102,9 @@ where
 	// Ensure net_change has been provided
 	let expected_net_change =
 		contract::utils::get_net_change(existing_context, setup_args.net_change)?;
+	if existing_context.is_none() {
+		verify_first_sign_net_change(&sl.state, sl.amount, expected_net_change)?;
+	}
 
 	// Define the values that must be provided in the setup phase at the sign step
 	let mut setup_args = setup_args.clone();
@@ -103,4 +129,38 @@ where
 	}
 
 	Ok((sl, context))
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn first_sign_net_change() {
+		for (state, amount, net_change) in [
+			(SlateState::Standard1, 10, 10),
+			(SlateState::Invoice1, 10, -10),
+			(SlateState::Standard1, 0, 0),
+			(SlateState::Invoice1, 0, 0),
+			(SlateState::Standard2, 10, -10),
+			(SlateState::Invoice2, 10, 10),
+			(SlateState::Invoice3, 10, 10),
+		] {
+			assert!(verify_first_sign_net_change(&state, amount, net_change).is_ok());
+		}
+
+		for (state, amount, net_change) in [
+			(SlateState::Standard1, 10, -10),
+			(SlateState::Invoice1, 10, 10),
+			(SlateState::Invoice1, 10, -9),
+		] {
+			assert!(verify_first_sign_net_change(&state, amount, net_change).is_err());
+		}
+
+		let err = verify_first_sign_net_change(&SlateState::Standard1, 10, 9).unwrap_err();
+		assert!(matches!(
+			err,
+			Error::GenericError(ref msg) if msg == "Expected net change 10, got 9"
+		));
+	}
 }

@@ -48,7 +48,6 @@ Separating side effects until the 'save_step' part would make these functions mu
    clearer, for the API as much as the CLI.
  - `new` has no `--no-setup`.
  - Add custom fee rates and contract TTLs, or document them as unsupported.
- - Detect a reversed `--send` or `--receive` when signing a slate for the first time.
  - Let `view` report whether a slatepack was encrypted for this wallet.
  - Show all inputs, outputs, fees and resulting balance changes before the CLI signs.
  - Distinguish the transfer amount from the fee-adjusted balance change in `view`.

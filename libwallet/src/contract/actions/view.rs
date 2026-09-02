@@ -14,6 +14,7 @@
 
 //! Implementation of contract view
 
+use super::initial_net_change;
 use crate::backend::WalletBackend;
 use crate::contract;
 use crate::contract::types::{ContractView, OwnCommitmentStatus};
@@ -23,17 +24,6 @@ use crate::grin_util::secp::key::SecretKey;
 use crate::internal::updater;
 use crate::slate::{Slate, SlateState};
 use crate::types::NodeClient;
-
-fn suggested_net_change(state: &SlateState, amount: u64) -> Result<Option<i64>, Error> {
-	let sign = match state {
-		SlateState::Standard1 => 1,
-		SlateState::Invoice1 => -1,
-		_ => return Ok(None),
-	};
-	let amount = i64::try_from(amount)
-		.map_err(|_| Error::GenericError(format!("Slate amount {} exceeds i64", amount)))?;
-	Ok(Some(sign * amount))
-}
 
 /// View contract
 pub fn view<C, K>(
@@ -69,7 +59,7 @@ where
 		Err(Error::NotFoundErr(_)) => None,
 		Err(e) => return Err(e),
 	};
-	let suggested_net_change = suggested_net_change(&slate.state, slate.amount)?;
+	let suggested_net_change = initial_net_change(&slate.state, slate.amount)?;
 	// A contract is executed once the transaction it produced has confirmed. That is
 	// recorded on our own tx log entry for this slate, so no chain lookup is needed; a
 	// slate we have never signed simply has no entry and is not executed.
@@ -125,15 +115,15 @@ mod tests {
 	#[test]
 	fn suggested_change_direction() {
 		assert_eq!(
-			suggested_net_change(&SlateState::Standard1, 10).unwrap(),
+			initial_net_change(&SlateState::Standard1, 10).unwrap(),
 			Some(10)
 		);
 		assert_eq!(
-			suggested_net_change(&SlateState::Invoice1, 10).unwrap(),
+			initial_net_change(&SlateState::Invoice1, 10).unwrap(),
 			Some(-10)
 		);
 		assert_eq!(
-			suggested_net_change(&SlateState::Standard2, 10).unwrap(),
+			initial_net_change(&SlateState::Standard2, 10).unwrap(),
 			None
 		);
 	}

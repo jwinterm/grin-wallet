@@ -69,6 +69,18 @@ fn contract_rsr_tx_impl(test_dir: &'static str) -> Result<(), libwallet::Error> 
 		send_mask,
 		PathBuf::from(test_dir),
 		|api, m| {
+			let wrong_args = ContractSetupArgsAPI {
+				selection_args: common::contract_selection_args(),
+				net_change: Some(5_000_000_000),
+				..Default::default()
+			};
+			let err = api.contract_sign(m, &slate, &wrong_args).unwrap_err();
+			assert!(matches!(
+				err,
+				libwallet::Error::GenericError(ref msg)
+					if msg == "Expected net change -5000000000, got 5000000000 (did you mean --send instead of --receive?)"
+			));
+
 			// Send Wallet calls --send=5
 			let args = &ContractSetupArgsAPI {
 				selection_args: common::contract_selection_args(),
