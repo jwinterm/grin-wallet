@@ -100,6 +100,7 @@ fn contract_command_test_impl(test_dir: &str) -> Result<(), grin_wallet_controll
 
 	// Mine into wallet 1 so it has something to send
 	let mask1 = (&mask1_i).as_ref();
+	let mask2 = (&mask2_i).as_ref();
 	let _ = test_framework::award_blocks_to_wallet(&chain, wallet1.clone(), mask1, 5, false);
 
 	// Wallet 1 opens a contract sending 1 grin, leaving an unencrypted slatepack because
@@ -141,6 +142,46 @@ fn contract_command_test_impl(test_dir: &str) -> Result<(), grin_wallet_controll
 		&file_name,
 	];
 	execute_command(&app, test_dir, "wallet1", &client1, arg_vec)?;
+
+	// Wallet 2 can also view a slatepack encrypted for its address
+	let mut recipient = None;
+	grin_wallet_controller::controller::owner_single_use(
+		wallet2.clone(),
+		mask2,
+		std::path::PathBuf::from(test_dir),
+		|api, m| {
+			recipient = Some(api.get_slatepack_address(m, 0)?.to_string());
+			Ok(())
+		},
+	)?;
+	std::fs::remove_file(file_name).unwrap();
+	let recipient = recipient.unwrap();
+	let arg_vec = vec![
+		"grin-wallet",
+		"-p",
+		"password1",
+		"contract",
+		"new",
+		"--send",
+		"1",
+		"--min_conf",
+		"1",
+		"--encrypt-for",
+		&recipient,
+	];
+	execute_command(&app, test_dir, "wallet1", &client1, arg_vec)?;
+
+	let file_name = only_slatepack(test_dir, "wallet1");
+	let arg_vec = vec![
+		"grin-wallet",
+		"-p",
+		"password2",
+		"contract",
+		"view",
+		"-i",
+		&file_name,
+	];
+	execute_command(&app, test_dir, "wallet2", &client2, arg_vec)?;
 
 	// A file that isn't there is reported, not panicked on
 	let arg_vec = vec![

@@ -179,12 +179,12 @@ pub struct ContractView {
 	pub num_participants: u8,
 	/// Suggested value for the party at step2 (only provided if slatepack is at step1)
 	pub suggested_net_change: Option<i64>,
-	/// Agreed net_change if we've agreed on it (the context must exist for this)
-	// NOTE: we drop the Context once we've signed. Perhaps we should think about dropping
-	// only the private keys associated with it to prevent double-signing with the same
-	// (pubkey, nonce) pair. This way, we'd retain the history on that wallet instance.
-	// There might also be value in forgetting the whole context.
+	/// Agreed net_change, when known from the context or transaction log
 	pub agreed_net_change: Option<i64>,
+	/// This wallet's fee contribution, when known from the context or transaction log
+	pub own_fee: Option<u64>,
+	/// Agreed balance change after this wallet's fee, or None while the fee is unknown
+	pub balance_change: Option<i64>,
 	/// Number of singatures on the contract
 	pub num_sigs: u8,
 	/// Has the contract been executed on chain
@@ -220,6 +220,8 @@ impl Default for ContractView {
 			num_participants: 2,
 			suggested_net_change: None,
 			agreed_net_change: None,
+			own_fee: None,
+			balance_change: None,
 			num_sigs: 0,
 			is_executed: false,
 			own_commitment_status: OwnCommitmentStatus::Unknown,

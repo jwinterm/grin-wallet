@@ -46,9 +46,6 @@ Separating side effects until the 'save_step' part would make these functions mu
    clearer, for the API as much as the CLI.
  - `new` has no `--no-setup`.
  - Add custom fee rates and contract TTLs, or document them as unsupported.
- - Let `view` report whether a slatepack was encrypted for this wallet.
- - Show all inputs, outputs, fees and resulting balance changes before the CLI signs.
- - Distinguish the transfer amount from the fee-adjusted balance change in `view`.
  - Raise the replacement fee when `revoke` races a transaction already in the mempool.
  - Merge invoice-proof retrieval with the existing payment-proof API.
  - Add a Grin node API for kernel lookup by MMR index, then use the witness index instead
@@ -61,7 +58,6 @@ Separating side effects until the 'save_step' part would make these functions mu
  - Preserve kernel features and their arguments across V4 and V5; see #793.
  - Choose the sender derivation path explicitly and keep encrypted outgoing files
    identifiable locally.
- - Decode the sender and slate from an incoming Slatepack in one pass.
  - Decide whether `target_slate_version` should control Slatepack output or be removed.
  - Add contract history, lookup by id, transport support and configurable proof memos.
  - Decide whether the foreign JSON-RPC API should expose `new` and `sign`.

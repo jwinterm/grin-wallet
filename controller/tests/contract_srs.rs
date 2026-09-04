@@ -215,6 +215,11 @@ fn contract_srs_tx_impl(test_dir: &'static str) -> Result<(), libwallet::Error> 
 		|api, m| {
 			let view = api.contract_view(m, &slate)?;
 			assert_eq!(view.own_commitment_status, OwnCommitmentStatus::Clean);
+			assert_eq!(view.own_fee, Some(participant_fee));
+			assert_eq!(
+				view.balance_change,
+				Some(5_000_000_000 - participant_fee as i64)
+			);
 			Ok(())
 		},
 	)?;
@@ -225,6 +230,11 @@ fn contract_srs_tx_impl(test_dir: &'static str) -> Result<(), libwallet::Error> 
 		|api, m| {
 			let view = api.contract_view(m, &slate)?;
 			assert_eq!(view.own_commitment_status, OwnCommitmentStatus::Clean);
+			assert_eq!(view.own_fee, Some(participant_fee));
+			assert_eq!(
+				view.balance_change,
+				Some(-5_000_000_000 - participant_fee as i64)
+			);
 			let mut no_tx = slate.clone();
 			no_tx.tx = None;
 			let view = api.contract_view(m, &no_tx)?;
@@ -408,6 +418,11 @@ fn contract_srs_tx_impl(test_dir: &'static str) -> Result<(), libwallet::Error> 
 		|api, m| {
 			let view = api.contract_view(m, &slate)?;
 			assert_eq!(view.own_commitment_status, OwnCommitmentStatus::Unknown);
+			assert_eq!(view.own_fee, Some(participant_fee));
+			assert_eq!(
+				view.balance_change,
+				Some(-5_000_000_000 - participant_fee as i64)
+			);
 			Ok(())
 		},
 	)?;

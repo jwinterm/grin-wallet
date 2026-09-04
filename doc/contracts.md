@@ -10,8 +10,7 @@ separate `setup` command. Setup is done by `new`, or by the first `sign` when ne
 The owner API provides all four commands. The Rust foreign API also provides `new` and
 `sign` for receiving contracts, but they are not exposed by the foreign JSON-RPC API. The
 API does not require manual confirmation, so a wallet using it still needs to show the
-transaction and ask the user before signing. The reference CLI does not show the full
-inputs, outputs, fees and balance changes yet.
+transaction and ask the user before signing.
 
 The CLI exchanges Slatepacks. The last `sign` broadcasts the transaction unless
 `--no-broadcast` is used.
@@ -41,12 +40,16 @@ so a late-locked contract can fail if another transaction spends the available o
 
 ## View and revoke
 
-`view` reads a slate or Slatepack and shows the participants, signatures, suggested or
-agreed amount change, whether the local transaction is confirmed, and whether it contains
-unexpected inputs or outputs from this wallet. This check is reported as unknown after
-the private context has been removed, when input features are missing, or when the slate
-does not contain a transaction. `view` does not show all inputs, outputs and fees, and it
-cannot find a contract by id.
+`view` reads a slate or Slatepack and shows its inputs and outputs when present, fees,
+transfer amount and the resulting change to this wallet when known. It also reports whether
+the Slatepack was encrypted for this wallet, whether the local transaction is confirmed,
+and whether the slate contains unexpected inputs or outputs from this wallet. This last
+check is reported as unknown after the private context has been removed, when input features
+are missing, or when the slate does not contain a transaction. `view` cannot find a contract
+by id.
+
+An encrypted Slatepack can have several recipients. The encryption status only shows that
+this wallet could decrypt it.
 
 `revoke` cancels the local transaction. When the wallet added an input, it returns a
 self-spend of that input. The caller still has to post it, and either transaction can win

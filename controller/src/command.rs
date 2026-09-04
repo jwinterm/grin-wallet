@@ -19,9 +19,7 @@ use crate::config::{TorConfig, WalletConfig, WALLET_CONFIG_FILE_NAME};
 use crate::core::{core, global};
 use crate::error::Error;
 use crate::impls::PathToSlatepack;
-use crate::impls::SlateGetter as _;
 use crate::keychain;
-use crate::libwallet::api_impl::owner;
 use crate::libwallet::api_impl::types::update_tx_slate_state;
 use crate::libwallet::contract::can_finalize;
 use crate::libwallet::contract::types::{
@@ -762,6 +760,44 @@ where
 	Ok(slate_out)
 }
 
+fn parse_slatepack_with_mode<L, C, K>(
+	owner_api: &mut Owner<L, C, K>,
+	keychain_mask: Option<&SecretKey>,
+	filename: Option<String>,
+	message: Option<String>,
+) -> Result<(Slate, Option<SlatepackAddress>, bool), Error>
+where
+	L: WalletLCProvider<'static, C, K>,
+	C: NodeClient + 'static,
+	K: keychain::Keychain + 'static,
+{
+	let packer = Slatepacker::new(SlatepackerArgs {
+		sender: None,
+		recipients: vec![],
+		dec_key: None,
+	});
+	let mut slatepack = match filename {
+		Some(f) => {
+			let pts = PathToSlatepack::new(f.into(), &packer, true);
+			pts.get_slatepack(false)?
+		}
+		None => match message {
+			Some(message) => packer.deser_slatepack(message.as_bytes(), false)?,
+			None => {
+				let msg = "No slate provided via file or direct input";
+				return Err(Error::GenericError(msg.into()).into());
+			}
+		},
+	};
+	let was_encrypted = slatepack.is_encrypted();
+	if was_encrypted {
+		let dec_key = owner_api.get_slatepack_secret_key(keychain_mask, 0)?;
+		slatepack.try_decrypt_payload(Some(&dec_key))?;
+	}
+	let slate = packer.get_slate(&slatepack)?;
+	Ok((slate, slatepack.sender, was_encrypted))
+}
+
 // Parse a slate and slatepack from a message
 pub fn parse_slatepack<L, C, K>(
 	owner_api: &mut Owner<L, C, K>,
@@ -774,51 +810,9 @@ where
 	C: NodeClient + 'static,
 	K: keychain::Keychain + 'static,
 {
-	let mut ret_address = None;
-	let slate = match filename {
-		Some(f) => {
-			// otherwise, get slate from slatepack
-			let dec_key = owner_api.get_slatepack_secret_key(keychain_mask, 0)?;
-			let packer = Slatepacker::new(SlatepackerArgs {
-				sender: None,
-				recipients: vec![],
-				dec_key: Some(&dec_key),
-			});
-			let pts = PathToSlatepack::new(f.into(), &packer, true);
-			let sl = Some(pts.get_tx()?.0);
-			ret_address = pts.get_slatepack(true)?.sender;
-			sl
-		}
-		None => None,
-	};
-
-	let slate = match slate {
-		Some(s) => s,
-		None => {
-			// try and parse directly from input_slatepack_message
-			match message {
-				Some(message) => {
-					let slate = owner_api.slate_from_slatepack_message(
-						keychain_mask,
-						message.clone(),
-						vec![0],
-					)?;
-					let slatepack = owner_api.decode_slatepack_message(
-						keychain_mask,
-						message.clone(),
-						vec![0],
-					)?;
-					ret_address = slatepack.sender;
-					slate
-				}
-				None => {
-					let msg = "No slate provided via file or direct input";
-					return Err(Error::GenericError(msg.into()).into());
-				}
-			}
-		}
-	};
-	Ok((slate, ret_address))
+	let (slate, sender, _) =
+		parse_slatepack_with_mode(owner_api, keychain_mask, filename, message)?;
+	Ok((slate, sender))
 }
 
 /// Receive command argument
@@ -957,7 +951,7 @@ where
 		dec_key: None,
 	});
 
-	if slatepack.mode == 1 {
+	if slatepack.is_encrypted() {
 		let dec_key = owner_api.get_slatepack_secret_key(keychain_mask, 0)?;
 		match slatepack.try_decrypt_payload(Some(&dec_key)) {
 			Ok(_) => {
@@ -1863,35 +1857,18 @@ where
 	// Args for signing are just setup args
 	let contract_sign_args = args.to_api_args()?;
 	let recipient = slatepack_recipient(args.counterparty_addr.as_deref())?;
+	print_contract_status("Paste slatepack:", args.as_json);
+	let mut slatepack_msg = String::new();
+	io::stdin()
+		.read_line(&mut slatepack_msg)
+		.map_err(|e| libwallet::Error::GenericError(format!("Failed to read from stdin: {}", e)))?;
+	let (mut slate, sender, _) =
+		parse_slatepack_with_mode(owner_api, keychain_mask, None, Some(slatepack_msg))?;
+	// Prefer --encrypt-for, then reply to the sender. Without either, use plaintext.
+	let recipient = recipient.or(sender);
 	let wallet_inst = owner_api.wallet_inst.clone();
 	let config_path = owner_api.config_path();
 	controller::owner_single_use(wallet_inst, keychain_mask, config_path, |api, m| {
-		// Read the slatepack from stdin
-		print_contract_status("Paste slatepack:", args.as_json);
-		let mut slatepack_msg = String::new();
-		io::stdin().read_line(&mut slatepack_msg).map_err(|e| {
-			libwallet::Error::GenericError(format!("Failed to read from stdin: {}", e))
-		})?;
-
-		// Decrypt the slate, sign it and encrypt it for the next party
-		// TODO: Make sure you get the counterparty_addr and slate with 1 call.
-		let slatepack = owner::decode_slatepack_message(
-			api.wallet_inst.clone(),
-			keychain_mask,
-			String::from(slatepack_msg.clone()),
-			vec![0],
-		)?;
-
-		// Encrypt the reply for --encrypt-for if given, else for the incoming slatepack's
-		// sender. If neither is known the incoming slate was plaintext, so reply plaintext.
-		let recipient = recipient.clone().or(slatepack.sender);
-		let mut slate = owner::slate_from_slatepack_message(
-			api.wallet_inst.clone(),
-			keychain_mask,
-			String::from(slatepack_msg),
-			vec![0],
-		)?;
-
 		slate = api.contract_sign(m, &slate, &contract_sign_args)?;
 
 		let slate_out = prepare_slatepack(api, keychain_mask, &slate, recipient, args.outfile)?;
@@ -1933,7 +1910,7 @@ where
 	C: NodeClient + 'static,
 	K: keychain::Keychain + 'static,
 {
-	let (slate, _) = parse_slatepack(
+	let (slate, _, was_encrypted) = parse_slatepack_with_mode(
 		owner_api,
 		keychain_mask,
 		args.input_file,
@@ -1944,7 +1921,7 @@ where
 	let config_path = owner_api.config_path();
 	controller::owner_single_use(wallet_inst, keychain_mask, config_path, |api, m| {
 		let view = api.contract_view(m, &slate)?;
-		display::contract_view(&slate, &view);
+		display::contract_view(&slate, &view, was_encrypted);
 		Ok(())
 	})?;
 
@@ -2020,6 +1997,7 @@ mod send_tests {
 #[cfg(test)]
 mod contract_tests {
 	use super::*;
+	use ed25519_dalek::{SigningKey, VerifyingKey};
 
 	#[test]
 	fn invalid_recipient() {
@@ -2039,5 +2017,45 @@ mod contract_tests {
 		let value: serde_json::Value = serde_json::from_str(&output.render(true)).unwrap();
 		assert_eq!(value["is_finalized"], true);
 		assert_eq!(value["message"], output.message);
+	}
+
+	#[test]
+	fn slatepack_encryption() {
+		global::set_local_chain_type(global::ChainTypes::AutomatedTesting);
+		let key = SigningKey::from_bytes(&[1; 32]);
+		let address = SlatepackAddress::new(&VerifyingKey::from(&key));
+		let slate = Slate::blank(2, false);
+
+		let plain = Slatepacker::new(SlatepackerArgs {
+			sender: None,
+			recipients: vec![],
+			dec_key: None,
+		})
+		.create_slatepack(&slate)
+		.unwrap();
+		assert!(!plain.is_encrypted());
+
+		let encrypted = Slatepacker::new(SlatepackerArgs {
+			sender: None,
+			recipients: vec![address],
+			dec_key: None,
+		})
+		.create_slatepack(&slate)
+		.unwrap();
+		assert!(encrypted.is_encrypted());
+
+		let mut invalid = serde_json::to_value(&plain).unwrap();
+		invalid["mode"] = serde_json::json!(2);
+		let data = serde_json::to_vec(&invalid).unwrap();
+		let packer = Slatepacker::new(SlatepackerArgs {
+			sender: None,
+			recipients: vec![],
+			dec_key: None,
+		});
+		assert!(matches!(
+			packer.deser_slatepack(&data, false),
+			Err(libwallet::Error::SlatepackDeser(message))
+				if message.contains("Unsupported Slatepack mode: 2")
+		));
 	}
 }

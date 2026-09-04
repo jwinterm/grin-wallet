@@ -1601,7 +1601,7 @@ where
 	K: Keychain,
 {
 	let mut slate = slate.clone();
-	contract::view(&mut *w, keychain_mask, &mut slate, "")
+	contract::view(&mut *w, keychain_mask, &mut slate)
 }
 
 /// Sign transaction contract

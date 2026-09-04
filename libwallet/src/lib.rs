@@ -65,7 +65,8 @@ pub use crate::slate_versions::{
 	GRIN_BLOCK_HEADER_VERSION,
 };
 pub use crate::slatepack::{
-	Slatepack, SlatepackAddress, SlatepackArmor, SlatepackBin, Slatepacker, SlatepackerArgs,
+	Slatepack, SlatepackAddress, SlatepackArmor, SlatepackBin, SlatepackMode, Slatepacker,
+	SlatepackerArgs,
 };
 pub use api_impl::owner_updater::StatusMessage;
 pub use api_impl::types::{

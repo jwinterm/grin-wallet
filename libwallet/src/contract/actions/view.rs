@@ -23,14 +23,42 @@ use crate::grin_keychain::Keychain;
 use crate::grin_util::secp::key::SecretKey;
 use crate::internal::updater;
 use crate::slate::{Slate, SlateState};
-use crate::types::NodeClient;
+use crate::types::{NodeClient, TxLogEntry};
+
+fn balance_change(net_change: Option<i64>, fee: Option<u64>) -> Result<Option<i64>, Error> {
+	match (net_change, fee) {
+		(Some(change), Some(fee)) => {
+			let fee = i64::try_from(fee)
+				.map_err(|_| Error::GenericError(format!("Contract fee {} exceeds i64", fee)))?;
+			change
+				.checked_sub(fee)
+				.map(Some)
+				.ok_or_else(|| Error::GenericError("Contract balance change overflow".to_string()))
+		}
+		_ => Ok(None),
+	}
+}
+
+fn tx_net_change(tx: &TxLogEntry) -> Result<i64, Error> {
+	let credited = i64::try_from(tx.amount_credited).map_err(|_| {
+		Error::GenericError(format!(
+			"Contract credit {} exceeds i64",
+			tx.amount_credited
+		))
+	})?;
+	let debited = i64::try_from(tx.amount_debited).map_err(|_| {
+		Error::GenericError(format!("Contract debit {} exceeds i64", tx.amount_debited))
+	})?;
+	credited
+		.checked_sub(debited)
+		.ok_or_else(|| Error::GenericError("Contract net change overflow".to_string()))
+}
 
 /// View contract
 pub fn view<C, K>(
 	w: &mut WalletBackend<C, K>,
 	keychain_mask: Option<&SecretKey>,
 	slate: &mut Slate,
-	_encrypted_for: &str,
 ) -> Result<ContractView, Error>
 where
 	C: NodeClient,
@@ -65,9 +93,11 @@ where
 	// slate we have never signed simply has no entry and is not executed.
 	let txs = updater::retrieve_txs(w, None, Some(slate.id), None, None, false)?;
 	let is_executed = txs.iter().any(|tx| tx.confirmed);
-	let has_signed = txs
+	let signed_tx = txs
 		.iter()
-		.any(|tx| contract::utils::is_signed_tx(tx, slate.id));
+		.find(|tx| contract::utils::is_signed_tx(tx, slate.id));
+	let has_signed = signed_tx.is_some();
+	let tx = signed_tx.or_else(|| txs.first());
 	// Once we have signed, the context identifies the commitments we added. If it has
 	// already been removed, the slate no longer carries enough information to do that.
 	let own_commitment_status = if slate.tx.is_none() || (context.is_none() && !txs.is_empty()) {
@@ -88,18 +118,27 @@ where
 		.filter(|v| v.is_complete())
 		.count();
 
-	// If we have a local context for this slate we've agreed on a net change; surface it.
+	// Read the agreed change from the context, or from the transaction log once it is gone.
 	let agreed_net_change = context
 		.as_ref()
 		.and_then(|context| context.setup_args.as_ref())
-		.and_then(|args| args.net_change);
+		.and_then(|args| args.net_change)
+		.map(Ok)
+		.or_else(|| tx.map(tx_net_change))
+		.transpose()?;
+	let own_fee = context
+		.as_ref()
+		.and_then(|context| context.fee)
+		.or_else(|| tx.and_then(|tx| tx.fee))
+		.map(|fee| fee.fee());
+	let balance_change = balance_change(agreed_net_change, own_fee)?;
 
-	// TODO: Maybe we can know if the slate was meant for us if it was encrypted for us.
-	// A possible issue is that one can encrypt the same slate for 10 people.
 	let ct_view = ContractView {
 		num_participants: slate.num_participants,
 		suggested_net_change: suggested_net_change,
 		agreed_net_change,
+		own_fee,
+		balance_change,
 		num_sigs: num_sigs as u8,
 		is_executed: is_executed,
 		own_commitment_status,
@@ -126,5 +165,27 @@ mod tests {
 			initial_net_change(&SlateState::Standard2, 10).unwrap(),
 			None
 		);
+	}
+
+	#[test]
+	fn balance_change_includes_fee() {
+		assert_eq!(balance_change(Some(10), Some(2)).unwrap(), Some(8));
+		assert_eq!(balance_change(Some(-10), Some(2)).unwrap(), Some(-12));
+		assert_eq!(balance_change(Some(10), None).unwrap(), None);
+		assert!(balance_change(Some(i64::MIN), Some(1)).is_err());
+	}
+
+	#[test]
+	fn reads_change_from_tx_log() {
+		let mut tx = TxLogEntry::new(
+			crate::grin_keychain::Identifier::zero(),
+			crate::types::TxLogEntryType::TxReceived,
+			0,
+		);
+		tx.amount_credited = 10;
+		assert_eq!(tx_net_change(&tx).unwrap(), 10);
+		tx.amount_credited = 0;
+		tx.amount_debited = 10;
+		assert_eq!(tx_net_change(&tx).unwrap(), -10);
 	}
 }
