@@ -41,7 +41,6 @@ Separating side effects until the 'save_step' part would make these functions mu
    clearer to callers.
  - For a payjoin, `--use-inputs any` picks an input for us; naming the commitment would be
    clearer, for the API as much as the CLI.
- - `new` has no `--no-setup`.
  - Add custom fee rates and contract TTLs, or document them as unsupported.
  - Raise the replacement fee when `revoke` races a transaction already in the mempool.
  - Merge invoice-proof retrieval with the existing payment-proof API.
