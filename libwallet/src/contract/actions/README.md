@@ -62,8 +62,6 @@ Separating side effects until the 'save_step' part would make these functions mu
  - Add full API and RPC examples once the contract interface is stable.
  - Separate side effects out from the computation, as described above.
  - Store transactions in LMDB so they can be committed with the wallet state.
- - Decide whether `contract_accounts_switch.rs` is a legitimate scenario, or whether
-   signing under a different account than setup should error.
 
 ### Side-effects
 

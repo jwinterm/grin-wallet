@@ -38,6 +38,9 @@ is used for the fee estimate, so any required inputs need enough confirmations a
 A value of `0` allows unconfirmed non-coinbase outputs. Open contracts do not reserve funds,
 so a late-locked contract can fail if another transaction spends the available outputs first.
 
+Each side's account is fixed when it first joins the contract. Changing the active account
+later does not affect setup or signing; they use the account stored in the context.
+
 ## View and revoke
 
 `view` reads a slate or Slatepack and shows its inputs and outputs when present, fees,

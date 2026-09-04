@@ -118,6 +118,7 @@ pub struct ContractSetupArgsAPI {
 	/// The human readable account name from which to draw outputs
 	/// for the transaction, overriding whatever the active account is as set via the
 	/// [`set_active_account`](../grin_wallet_api/owner/struct.Owner.html#method.set_active_account) method.
+	/// Only used when creating the local contract context
 	pub src_acct_name: Option<String>,
 	/// The net change we will agree on. The amount is in nanogrins (`1 G = 1_000_000_000nG`).
 	/// The value is positive when we are on the receiving end and negative when we are the sender.

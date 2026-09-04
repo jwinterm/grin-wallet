@@ -11,7 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Test a wallet doing contracts with different accounts and switching between them
+//! Test that a contract stays with its original account after switching accounts
 // #[macro_use]
 extern crate grin_wallet_controller as wallet;
 extern crate grin_wallet_impls as impls;
