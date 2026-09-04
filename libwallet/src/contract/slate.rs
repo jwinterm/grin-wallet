@@ -465,9 +465,8 @@ pub(super) fn transition_state(slate: &mut Slate) -> Result<(), Error> {
 
 /// Add partial signature to the slate.
 // Nonce reuse is prevented by forgetting the signing context after a signed step:
-// save_step deletes the private context (which holds sec_key/sec_nonce) once is_signed
-// (except the deliberately-retained step2 context used for safe cancel). The context is
-// keyed by slate.id, so a given nonce is only ever used for one message.
+// save_step deletes sec_key/sec_nonce after signing, except for step2 contract view
+// Contexts are keyed by slate.id so a nonce is only used for one message
 pub fn sign<C, K>(
 	w: &mut WalletBackend<C, K>,
 	keychain_mask: Option<&SecretKey>,
@@ -490,6 +489,8 @@ where
 		)));
 	}
 	let keychain = w.keychain(keychain_mask)?;
+	// Do not let fill_round_2 skip a missing participant
+	slate.find_index_matching_context(&keychain, context)?;
 	slate.fill_round_2(&keychain, &context.sec_key, &context.sec_nonce)?;
 	debug!(
 		"contract::sign => signed for slate fees: {}",

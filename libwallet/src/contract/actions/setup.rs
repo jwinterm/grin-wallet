@@ -35,18 +35,12 @@ where
 	C: NodeClient,
 	K: Keychain,
 {
+	contract::utils::verify_not_signed(w, slate.id)?;
 	// Compute state for 'setup'
-	let (slate, mut context) = compute(w, keychain_mask, slate, setup_args)?;
+	let (slate, context) = compute(w, keychain_mask, slate, setup_args)?;
 
 	// Atomically commit state
-	contract::utils::save_step(
-		w,
-		keychain_mask,
-		&slate,
-		&mut context,
-		setup_args.add_outputs,
-		false,
-	)?;
+	contract::utils::save_step(w, keychain_mask, &slate, context, setup_args.add_outputs)?;
 
 	Ok(slate)
 }

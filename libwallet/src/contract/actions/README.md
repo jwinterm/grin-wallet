@@ -65,16 +65,12 @@ Separating side effects until the 'save_step' part would make these functions mu
  - Decide whether `contract_accounts_switch.rs` is a legitimate scenario, or whether
    signing under a different account than setup should error.
 
-#### save_step
-
-    // TODO:
-    //  - is_signed should be derived from the slate
-    //  - Consider taking ownership of Context here. It should not be used after this is called.
-
 ### Side-effects
 
 #### Setup
+	// Persisting setup::compute() requires verify_not_signed first
 	// Side-effects:
+	//  - contract_utils::verify_not_signed -> tx_log_iter
 	//  - height = w.w2n_client().get_chain_tip()?.0;
 	//  - maybe_context = w.get_private_context(keychain_mask, sl.id.as_bytes())
 	//  - create_contract_ctx -> updater::refresh_outputs(wallet, keychain_mask, parent_key_id, false)?;

@@ -70,7 +70,7 @@ where
 		.map(|context| !context.has_inputs_or_outputs())
 		.unwrap_or(true);
 	// Compute state for 'sign'
-	let (sl, mut context) = compute(
+	let (sl, context) = compute(
 		w,
 		keychain_mask,
 		slate,
@@ -79,7 +79,7 @@ where
 	)?;
 
 	// Atomically commit state
-	contract::utils::save_step(w, keychain_mask, &sl, &mut context, will_add_outputs, true)?;
+	contract::utils::save_step(w, keychain_mask, &sl, context, will_add_outputs)?;
 
 	Ok(sl)
 }

@@ -704,7 +704,7 @@ impl Slate {
 	}
 
 	/// Verifies all of the partial signatures in the Slate are valid
-	fn verify_part_sigs(&self, secp: &secp::Secp256k1) -> Result<(), Error> {
+	pub(crate) fn verify_part_sigs(&self, secp: &secp::Secp256k1) -> Result<(), Error> {
 		// collect public nonces
 		for p in self.participant_data.iter() {
 			if p.is_complete() {

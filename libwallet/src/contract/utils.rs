@@ -60,12 +60,14 @@ pub fn create_tx_log_entry(
 	Ok(t)
 }
 
-/// Updates TxLogEntry for a contract with information available in the 'sign' step
+/// Update TxLogEntry with data from the sign step
+/// `participant_index` is our entry in `slate.participant_data`
 pub fn update_tx_log_entry<C, K>(
 	wallet: &mut WalletBackend<C, K>,
-	keychain_mask: Option<&SecretKey>,
+	keychain: &K,
 	slate: &Slate,
 	context: &Context,
+	participant_index: usize,
 	tx_log_entry: &mut TxLogEntry,
 ) -> Result<(), Error>
 where
@@ -73,7 +75,6 @@ where
 	K: Keychain,
 {
 	// This is expected to be called when we are signing the contract and have already contributed inputs & outputs
-	let keychain = wallet.keychain(keychain_mask)?;
 	let parent_key_id = context.parent_key_id.clone();
 	let current_height = wallet.w2n_client().get_chain_tip()?.0;
 	// We have already contributed inputs and outputs so we know how much of each we contribute
@@ -93,7 +94,7 @@ where
 			// note we only use a single path for now
 			let sender_address_path = 0u32;
 			let sender_key = address::address_from_derivation_path(
-				&keychain,
+				keychain,
 				&parent_key_id,
 				sender_address_path,
 			)?;
@@ -102,14 +103,20 @@ where
 			// We're looking for the OTHER party here, the recipient. The 'xor 1' pairing
 			// only holds for a two-party slate, so check that before indexing: a slate
 			// with a shorter participant list would otherwise panic here.
-			let sender_index = slate.find_index_matching_context(&keychain, context)?;
 			if slate.participant_data.len() != 2 {
 				return Err(Error::GenericError(format!(
 					"Expected 2 participants for a payment proof, found {}",
 					slate.participant_data.len()
 				)));
 			}
-			let recipient_index = sender_index ^ 1;
+			let sender = slate
+				.participant_data
+				.get(participant_index)
+				.ok_or(Error::ContextToIndex)?;
+			let recipient = slate
+				.participant_data
+				.get(participant_index ^ 1)
+				.ok_or(Error::ContextToIndex)?;
 
 			tx_log_entry.payment_proof = Some(StoredProofInfo {
 				receiver_address: p.receiver_address,
@@ -120,14 +127,12 @@ where
 				// Filled as separate steps for now; could be merged into a general case
 				// once we know which nonces here belong to the recipient.
 				proof_type: Some(p.proof_type.as_u8()),
-				receiver_public_nonce: Some(slate.participant_data[recipient_index].public_nonce),
-				receiver_public_excess: Some(
-					slate.participant_data[recipient_index].public_blind_excess,
-				),
+				receiver_public_nonce: Some(recipient.public_nonce),
+				receiver_public_excess: Some(recipient.public_blind_excess),
 				timestamp: Some(timestamp),
 				memo: p.memo.clone(),
 				promise_signature: p.promise_signature,
-				sender_part_sig: slate.participant_data[sender_index].part_sig,
+				sender_part_sig: sender.part_sig,
 			});
 		}
 	}
@@ -178,15 +183,15 @@ pub fn get_net_change(
 	Ok(expected_net_change.unwrap())
 }
 
-/// Atomically locks the inputs and saves the changes of Context, TxLogEntry and OutputData.
-/// Additionally, the transaction is saved in a file in case we signed it.
+/// Lock inputs and store the Context, TxLogEntry and OutputData atomically
+/// Consumes the context and derives the signed state from our participant data
+/// Signed transactions are written outside the database batch
 pub fn save_step<C, K>(
 	w: &mut WalletBackend<C, K>,
 	keychain_mask: Option<&SecretKey>,
 	slate: &Slate,
-	context: &mut Context,
+	mut context: Context,
 	step_added_outputs: bool,
-	is_signed: bool,
 ) -> Result<(), Error>
 where
 	C: NodeClient,
@@ -198,9 +203,16 @@ where
 	);
 	// Phase 1 - precompute the data needed for atomic update
 	let parent_key_id = &context.parent_key_id;
+	let keychain = w.keychain(keychain_mask)?;
+	let participant_index = slate.find_index_matching_context(&keychain, &context)?;
+	let is_signed = slate.participant_data[participant_index].is_complete();
+	if is_signed {
+		// Verify part_sig before using it as signed state
+		slate.verify_part_sigs(keychain.secp())?;
+	}
 	let current_height = w.w2n_client().get_chain_tip()?.0;
 	// We are at step2 if we don't have context.log_id and we have signed the slate
-	let is_step2 = !context.log_id.is_some() && is_signed;
+	let is_step2 = context.log_id.is_none() && is_signed;
 
 	let mut tx_log_entry = {
 		if context.log_id.is_none() {
@@ -215,7 +227,14 @@ where
 
 	// Update TxLogEntry if we have signed the contract (we have data about the kernel)
 	if is_signed {
-		update_tx_log_entry(w, keychain_mask, &slate, &context, &mut tx_log_entry)?;
+		update_tx_log_entry(
+			w,
+			&keychain,
+			slate,
+			&context,
+			participant_index,
+			&mut tx_log_entry,
+		)?;
 		// Record where the transaction is stored, as internal::selection does for a
 		// standard send. store_tx below writes it under this name, and 'txs' reads the
 		// field to report whether the transaction data is held.
@@ -252,7 +271,7 @@ where
 	let mut batch = w.batch(keychain_mask)?;
 
 	// Update TxLogEntry
-	if !context.log_id.is_some() {
+	if context.log_id.is_none() {
 		// If we just created the TxLogEntry, we have to assign it an id
 		let log_id = batch.next_tx_log_id(&parent_key_id)?;
 		tx_log_entry.id = log_id;
@@ -279,8 +298,7 @@ where
 	if is_signed && !is_step2 {
 		// NOTE: We MUST forget the context when we sign. Ideally, these two would be atomic or perhaps
 		// when we call slate::sigadd_partial_signaturen we could swap the secret key with a temporary one just to be safe.
-		// The reason we don't delete if we are at step2 is because in case we want to do safe cancel,
-		// we need to know which inputs are in the context to know which input we have to double-spend.
+		// Keep the step2 context for contract view
 		batch.delete_private_context(slate.id.as_bytes())?;
 	} else {
 		batch.save_private_context(slate.id.as_bytes(), &context)?;
@@ -288,10 +306,7 @@ where
 
 	batch.commit()?;
 
-	// Defense in depth: once we have signed (and are past the step2 context that is kept
-	// deliberately for safe cancel), the signing context holding sec_key/sec_nonce must be
-	// gone so the nonce can never be reused. It is deleted in the is_signed && !is_step2
-	// branch above; verify the deletion actually took effect.
+	// Confirm sec_key/sec_nonce are gone after signing, except for step2
 	if is_signed && !is_step2 {
 		match w.get_private_context(keychain_mask, slate.id.as_bytes()) {
 			Err(Error::NotFoundErr(_)) => {}

@@ -39,17 +39,10 @@ where
 	K: Keychain,
 {
 	// Compute state for 'new'
-	let (slate, mut context) = compute(w, keychain_mask, setup_args, slate_id)?;
+	let (slate, context) = compute(w, keychain_mask, setup_args, slate_id)?;
 
 	// Atomically commit state
-	contract::utils::save_step(
-		w,
-		keychain_mask,
-		&slate,
-		&mut context,
-		setup_args.add_outputs,
-		false,
-	)?;
+	contract::utils::save_step(w, keychain_mask, &slate, context, setup_args.add_outputs)?;
 
 	Ok(slate)
 }

@@ -20,6 +20,7 @@ extern crate log;
 use grin_wallet_libwallet as libwallet;
 
 use grin_core::core::transaction::{CommitWrapper, Input, Inputs, OutputFeatures, Transaction};
+use grin_util::secp::Signature;
 use impls::test_framework::{self};
 use libwallet::contract::my_fee_contribution;
 use libwallet::contract::types::{ContractNewArgsAPI, ContractSetupArgsAPI, OwnCommitmentStatus};
@@ -94,6 +95,30 @@ fn contract_srs_tx_impl(test_dir: &'static str) -> Result<(), libwallet::Error> 
 			signatures: 0,
 		},
 	);
+	wallet::controller::owner_single_use(
+		send_wallet.clone(),
+		send_mask,
+		PathBuf::from(test_dir),
+		|api, m| {
+			let progress = common::wallet_progress(api, m)?;
+			let mut invalid = slate.clone();
+			invalid.participant_data[0].part_sig =
+				Some(Signature::from_raw_data(&[0; 64]).unwrap());
+			let setup_args = ContractSetupArgsAPI {
+				selection_args: common::contract_selection_args(),
+				net_change: Some(-5_000_000_000),
+				..Default::default()
+			};
+			let err = {
+				let mut owner = api.wallet_inst.lock();
+				let wallet = owner.lc_provider()?.wallet_inst()?;
+				libwallet::contract::setup(wallet, m, &invalid, &setup_args).unwrap_err()
+			};
+			assert!(matches!(err, libwallet::Error::LibTX(_)));
+			assert_eq!(common::wallet_progress(api, m)?, progress);
+			Ok(())
+		},
+	)?;
 
 	wallet::controller::owner_single_use(
 		recv_wallet.clone(),
@@ -190,6 +215,18 @@ fn contract_srs_tx_impl(test_dir: &'static str) -> Result<(), libwallet::Error> 
 				err,
 				libwallet::Error::GenericError(ref msg)
 					if msg == &format!("Slate with id:{} has already been signed.", incoming.id)
+			));
+			assert_eq!(common::wallet_progress(api, m)?, progress);
+
+			let err = {
+				let mut owner = api.wallet_inst.lock();
+				let wallet = owner.lc_provider()?.wallet_inst()?;
+				libwallet::contract::setup(wallet, m, &slate, &args).unwrap_err()
+			};
+			assert!(matches!(
+				err,
+				libwallet::Error::GenericError(ref msg)
+					if msg == &format!("Slate with id:{} has already been signed.", slate.id)
 			));
 			assert_eq!(common::wallet_progress(api, m)?, progress);
 			Ok(())
