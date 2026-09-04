@@ -29,7 +29,7 @@ use std::thread;
 use std::time::Duration;
 
 use grin_wallet_libwallet::{
-	InitTxArgs, InitTxSendArgs, IssueInvoiceTxArgs, Slate, Slatepack, SlatepackAddress,
+	InitTxArgs, InitTxSendArgs, IssueInvoiceTxArgs, Slate, SlateState, Slatepack, SlatepackAddress,
 	Slatepacker, SlatepackerArgs,
 };
 
@@ -791,4 +791,40 @@ fn slatepack_address() {
 		panic!("Libwallet Error: {}", e);
 	}
 	clean_output_dir(test_dir);
+}
+
+#[test]
+fn slatepack_v4() {
+	const V4_SLATEPACK: &str = include_str!("slates/v4.slatepack");
+	common::setup_global_chain_type();
+
+	let packer = Slatepacker::new(SlatepackerArgs {
+		sender: None,
+		recipients: vec![],
+		dec_key: None,
+	});
+	let packed = packer
+		.deser_slatepack(V4_SLATEPACK.as_bytes(), false)
+		.unwrap();
+	let slate = packer.get_slate(&packed).unwrap();
+
+	assert_eq!(slate.version_info.version, 4);
+	assert_eq!(slate.state, SlateState::Standard2);
+	assert_eq!(slate.participant_data.len(), 1);
+	assert_eq!(
+		slate
+			.participant_data
+			.iter()
+			.filter(|participant| participant.part_sig.is_some())
+			.count(),
+		1
+	);
+	let tx = slate.tx_or_err().unwrap();
+	assert_eq!(tx.inputs().len(), 0);
+	assert_eq!(tx.outputs().len(), 1);
+	assert_eq!(tx.kernels().len(), 1);
+	assert_eq!(
+		packer.create_slatepack(&slate).unwrap().payload,
+		packed.payload
+	);
 }

@@ -71,10 +71,6 @@ Separating side effects until the 'save_step' part would make these functions mu
  - Decide whether `contract_accounts_switch.rs` is a legitimate scenario, or whether
    signing under a different account than setup should error.
 
-#### Tests
-
- - Slatepack version negotiation with the last supported wallet release
-
 #### save_step
 
     // TODO:
