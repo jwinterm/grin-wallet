@@ -63,7 +63,8 @@ account selected with `--account`.
 
 ## Current limitations
 
-* Only one or two participants are supported
+* Only one or two participants are supported. Larger contracts remain disabled because of
+  the [known multi-party attack](https://forum.grin.mw/t/grin-wallet-contract-prototype/9745/18)
 * Early payment proofs are only implemented for contracts and are only available through
   the API. Only invoice proofs are supported and they require the experimental Slate V5
   format. The full proposal is described in

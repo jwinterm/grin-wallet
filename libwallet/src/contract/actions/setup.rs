@@ -35,6 +35,13 @@ where
 	C: NodeClient,
 	K: Keychain,
 {
+	contract::utils::verify_num_participants(slate.num_participants)?;
+	if slate.num_participants != setup_args.num_participants {
+		return Err(Error::GenericError(format!(
+			"Inconsistent num_participants. Slate num_participants:{}, Setup num_participants: {}",
+			slate.num_participants, setup_args.num_participants
+		)));
+	}
 	contract::utils::verify_not_signed(w, slate.id)?;
 	// Compute state for 'setup'
 	let (slate, context) = compute(w, keychain_mask, slate, setup_args)?;

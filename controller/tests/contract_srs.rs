@@ -49,6 +49,17 @@ fn reject_contract_slate(
 	))
 }
 
+fn assert_participant_error(err: libwallet::Error, count: u8) {
+	assert!(matches!(
+		err,
+		libwallet::Error::GenericError(ref msg)
+			if msg == &format!(
+				"Unsupported num_participants: {} (expected 1 or 2)",
+				count
+			)
+	));
+}
+
 /// contract SRS flow
 fn contract_srs_tx_impl(test_dir: &'static str) -> Result<(), libwallet::Error> {
 	// create two wallets and mine 4 blocks in each (we want both to have balance to get a payjoin)
@@ -68,7 +79,7 @@ fn contract_srs_tx_impl(test_dir: &'static str) -> Result<(), libwallet::Error> 
 		PathBuf::from(test_dir),
 		|api, m| {
 			// Send wallet inititates a standard transaction with --send=5
-			let args = &mut ContractNewArgsAPI {
+			let mut args = ContractNewArgsAPI {
 				setup_args: ContractSetupArgsAPI {
 					selection_args: common::contract_selection_args(),
 					net_change: Some(-5_000_000_000),
@@ -76,7 +87,16 @@ fn contract_srs_tx_impl(test_dir: &'static str) -> Result<(), libwallet::Error> 
 				},
 				..Default::default()
 			};
-			slate = api.contract_new(m, args)?;
+			let progress = common::wallet_progress(api, m)?;
+			for count in [0, 3] {
+				args.setup_args.num_participants = count;
+				let err = api.contract_new(m, &mut args).unwrap_err();
+				assert_participant_error(err, count);
+			}
+			assert_eq!(common::wallet_progress(api, m)?, progress);
+
+			args.setup_args.num_participants = 2;
+			slate = api.contract_new(m, &mut args)?;
 			Ok(())
 		},
 	)?;
@@ -101,14 +121,40 @@ fn contract_srs_tx_impl(test_dir: &'static str) -> Result<(), libwallet::Error> 
 		PathBuf::from(test_dir),
 		|api, m| {
 			let progress = common::wallet_progress(api, m)?;
-			let mut invalid = slate.clone();
-			invalid.participant_data[0].part_sig =
-				Some(Signature::from_raw_data(&[0; 64]).unwrap());
 			let setup_args = ContractSetupArgsAPI {
 				selection_args: common::contract_selection_args(),
 				net_change: Some(-5_000_000_000),
 				..Default::default()
 			};
+			for count in [0, 3] {
+				let mut invalid = slate.clone();
+				invalid.num_participants = count;
+				let err = {
+					let mut owner = api.wallet_inst.lock();
+					let wallet = owner.lc_provider()?.wallet_inst()?;
+					libwallet::contract::setup(wallet, m, &invalid, &setup_args).unwrap_err()
+				};
+				assert_participant_error(err, count);
+			}
+			assert_eq!(common::wallet_progress(api, m)?, progress);
+
+			let mut mismatched = setup_args.clone();
+			mismatched.num_participants = 1;
+			let err = {
+				let mut owner = api.wallet_inst.lock();
+				let wallet = owner.lc_provider()?.wallet_inst()?;
+				libwallet::contract::setup(wallet, m, &slate, &mismatched).unwrap_err()
+			};
+			assert!(matches!(
+				err,
+				libwallet::Error::GenericError(ref msg)
+					if msg == "Inconsistent num_participants. Slate num_participants:2, Setup num_participants: 1"
+			));
+			assert_eq!(common::wallet_progress(api, m)?, progress);
+
+			let mut invalid = slate.clone();
+			invalid.participant_data[0].part_sig =
+				Some(Signature::from_raw_data(&[0; 64]).unwrap());
 			let err = {
 				let mut owner = api.wallet_inst.lock();
 				let wallet = owner.lc_provider()?.wallet_inst()?;
@@ -126,6 +172,29 @@ fn contract_srs_tx_impl(test_dir: &'static str) -> Result<(), libwallet::Error> 
 		PathBuf::from(test_dir),
 		|api, m| {
 			let progress = common::wallet_progress(api, m)?;
+			for count in [0, 3] {
+				let mut invalid = slate.clone();
+				invalid.num_participants = count;
+				let err = match api.contract_view(m, &invalid) {
+					Err(err) => err,
+					Ok(_) => panic!("invalid participant count accepted"),
+				};
+				assert_participant_error(err, count);
+				let err = api
+					.contract_sign(
+						m,
+						&invalid,
+						&ContractSetupArgsAPI {
+							selection_args: common::contract_selection_args(),
+							net_change: Some(5_000_000_000),
+							..Default::default()
+						},
+					)
+					.unwrap_err();
+				assert_participant_error(err, count);
+			}
+			assert_eq!(common::wallet_progress(api, m)?, progress);
+
 			let mut invalid = slate.clone();
 			invalid.state = SlateState::Unknown;
 			let err = api

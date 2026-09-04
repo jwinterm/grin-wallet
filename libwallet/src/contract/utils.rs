@@ -346,6 +346,7 @@ pub fn my_fee_contribution(
 	n_kernels: usize,
 	num_participants: u8,
 ) -> Result<FeeFields, Error> {
+	verify_num_participants(num_participants)?;
 	// Add our fee costs for our inputs and a single output
 	let mut fee = tx_fee(n_inputs, n_outputs, 0);
 	// Add out fee costs for kernel. We pay 1/num_participants of a kernel cost
@@ -360,6 +361,18 @@ pub fn my_fee_contribution(
 	// 1/num_participants split so the contributions together cover the kernel cost.
 	let my_fee_fields = FeeFields::new(0, fee)?;
 	Ok(my_fee_fields)
+}
+
+/// Contracts need at least one participant for fee splitting
+/// More than two remain disabled because of the known multi-party attack
+pub(super) fn verify_num_participants(num_participants: u8) -> Result<(), Error> {
+	if !(1..=2).contains(&num_participants) {
+		return Err(Error::GenericError(format!(
+			"Unsupported num_participants: {} (expected 1 or 2)",
+			num_participants
+		)));
+	}
+	Ok(())
 }
 
 /// Whether a transaction log entry shows that this wallet signed the slate.
@@ -468,5 +481,23 @@ mod tests {
 		assert_eq!(half, base + my_share);
 		// ... and applying the same split, the participants together cover the kernel cost.
 		assert!(2 * my_share >= kernel_cost);
+	}
+
+	#[test]
+	fn participant_count() {
+		assert!(verify_num_participants(1).is_ok());
+		assert!(verify_num_participants(2).is_ok());
+		for count in [0, 3] {
+			let err = verify_num_participants(count).unwrap_err();
+			assert!(matches!(
+				err,
+				Error::GenericError(ref msg)
+					if msg == &format!(
+						"Unsupported num_participants: {} (expected 1 or 2)",
+						count
+					)
+			));
+			assert!(my_fee_contribution(1, 1, 1, count).is_err());
+		}
 	}
 }

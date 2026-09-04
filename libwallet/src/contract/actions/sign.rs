@@ -58,6 +58,7 @@ where
 	C: NodeClient,
 	K: Keychain,
 {
+	contract::utils::verify_num_participants(slate.num_participants)?;
 	// Compute if we will add outputs at this step. Only a missing context means we
 	// still need to add them; propagate any other error.
 	let existing_context = match w.get_private_context(keychain_mask, slate.id.as_bytes()) {

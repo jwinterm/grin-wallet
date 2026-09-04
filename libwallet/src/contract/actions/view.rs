@@ -75,13 +75,7 @@ where
 			"Cannot view a slate with an Unknown state".to_string(),
 		));
 	}
-	// Mirror the contract setup bound so a tampered slate can't surface a bogus count.
-	if slate.num_participants < 1 || slate.num_participants > 2 {
-		return Err(Error::GenericError(format!(
-			"Unsupported num_participants: {} (expected 1 or 2)",
-			slate.num_participants
-		)));
-	}
+	contract::utils::verify_num_participants(slate.num_participants)?;
 	let context = match w.get_private_context(keychain_mask, slate.id.as_bytes()) {
 		Ok(context) => Some(context),
 		Err(Error::NotFoundErr(_)) => None,

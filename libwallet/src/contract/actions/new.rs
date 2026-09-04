@@ -38,6 +38,7 @@ where
 	C: NodeClient,
 	K: Keychain,
 {
+	contract::utils::verify_num_participants(setup_args.num_participants)?;
 	// Compute state for 'new'
 	let (slate, context) = compute(w, keychain_mask, setup_args, slate_id)?;
 
