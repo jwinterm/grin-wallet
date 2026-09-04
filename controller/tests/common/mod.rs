@@ -22,7 +22,7 @@ use grin_core as core;
 use grin_keychain as keychain;
 use grin_util as util;
 
-use self::core::core::{FeeFields, KernelFeatures};
+use self::core::core::{FeeFields, Inputs, KernelFeatures, OutputFeatures};
 use self::core::global;
 use self::core::global::ChainTypes;
 use self::keychain::{ExtKeychain, Keychain};
@@ -102,6 +102,7 @@ pub struct ExpectedContractSlate {
 	pub amount: u64,
 	pub fee: u64,
 	pub inputs: usize,
+	pub coinbase_inputs: usize,
 	pub outputs: usize,
 	pub kernels: usize,
 	pub num_participants: u8,
@@ -120,8 +121,20 @@ pub fn assert_basic_contract_slate(slate: &libwallet::Slate, expected: ExpectedC
 	assert!(slate.kernel_features_args.is_none());
 	assert!(slate.payment_proof.is_none());
 	assert_eq!(slate.num_participants, expected.num_participants);
-	assert_eq!(tx.inputs().len(), expected.inputs);
+	let inputs = tx.inputs();
+	assert_eq!(inputs.len(), expected.inputs);
+	match inputs {
+		Inputs::FeaturesAndCommit(inputs) => assert_eq!(
+			inputs
+				.iter()
+				.filter(|input| input.features == OutputFeatures::Coinbase)
+				.count(),
+			expected.coinbase_inputs
+		),
+		Inputs::CommitOnly(_) => panic!("contract inputs must include their features"),
+	}
 	assert_eq!(tx.outputs().len(), expected.outputs);
+	assert!(tx.outputs().iter().all(|output| output.is_plain()));
 	assert_eq!(tx.kernels().len(), expected.kernels);
 	assert_eq!(slate.participant_data.len(), expected.participant_data);
 	assert_eq!(

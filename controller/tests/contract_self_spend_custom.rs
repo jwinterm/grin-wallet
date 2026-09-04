@@ -20,6 +20,7 @@ extern crate log;
 use grin_wallet_libwallet as libwallet;
 
 use grin_core::consensus;
+use grin_core::core::transaction::CommitWrapper;
 use impls::test_framework::{self};
 use libwallet::contract::my_fee_contribution;
 use libwallet::contract::types::{ContractNewArgsAPI, ContractSetupArgsAPI, OutputSelectionArgs};
@@ -43,6 +44,7 @@ fn contract_self_spend_custom_tx_impl(test_dir: &'static str) -> Result<(), libw
 
 	let mut use_inputs = String::from("");
 
+	let mut plain_input = None;
 	wallet::controller::owner_single_use(
 		send_wallet.clone(),
 		send_mask,
@@ -166,6 +168,15 @@ fn contract_self_spend_custom_tx_impl(test_dir: &'static str) -> Result<(), libw
 			// Assert expected outputs were created
 			// 88, 35, 3, 0.2, 15 and a change output
 			assert_eq!(commits[10].output.value, 88 * consensus::GRIN_BASE);
+			assert!(!commits[10].output.is_coinbase);
+			plain_input = Some((
+				commits[10]
+					.output
+					.commit
+					.clone()
+					.expect("plain output has no commitment"),
+				commits[10].commit,
+			));
 			assert_eq!(commits[11].output.value, 35 * consensus::GRIN_BASE);
 			assert_eq!(commits[12].output.value, 3 * consensus::GRIN_BASE);
 			assert_eq!(
@@ -183,6 +194,50 @@ fn contract_self_spend_custom_tx_impl(test_dir: &'static str) -> Result<(), libw
 			Ok(())
 		},
 	)?;
+
+	let (plain_input, plain_commitment) = plain_input.expect("plain output was not found");
+	wallet::controller::owner_single_use(
+		send_wallet.clone(),
+		send_mask,
+		PathBuf::from(test_dir),
+		|api, m| {
+			slate = api.contract_new(
+				m,
+				&ContractNewArgsAPI {
+					setup_args: ContractSetupArgsAPI {
+						net_change: Some(0),
+						num_participants: 1,
+						selection_args: OutputSelectionArgs {
+							minimum_confirmations: Some(1),
+							use_inputs: Some(plain_input),
+							..Default::default()
+						},
+						..Default::default()
+					},
+					..Default::default()
+				},
+			)?;
+			slate = api.contract_sign(m, &slate, &ContractSetupArgsAPI::default())?;
+			Ok(())
+		},
+	)?;
+	assert_eq!(slate.state, SlateState::Standard2);
+	common::assert_basic_contract_slate(
+		&slate,
+		common::ExpectedContractSlate {
+			amount: 0,
+			fee: my_fee_contribution(1, 1, 1, 1)?.fee(),
+			inputs: 1,
+			coinbase_inputs: 0,
+			outputs: 1,
+			kernels: 1,
+			num_participants: 1,
+			participant_data: 1,
+			signatures: 1,
+		},
+	);
+	let inputs = Vec::<CommitWrapper>::from(&slate.tx_or_err()?.inputs());
+	assert_eq!(inputs[0].commitment(), plain_commitment);
 
 	// let logging finish
 	stopper.store(false, Ordering::Relaxed);

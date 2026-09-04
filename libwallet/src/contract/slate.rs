@@ -643,14 +643,24 @@ mod tests {
 		assert!(check_identifiers(&[], &[own_input], "input").is_err());
 		assert!(check_identifiers(&[own_input], &[own_output], "output").is_err());
 		assert!(check_identifiers(&[own_input, own_input], &[own_input], "input").is_err());
-		assert!(check_identifiers(
-			&[identifier(1, OutputFeatures::Coinbase)],
-			&[own_input],
-			"input"
-		)
-		.is_err());
 		assert!(cached_commitment("01").is_none());
 		assert!(cached_commitment("not hex").is_none());
 		assert!(cached_commitment(&"00".repeat(PEDERSEN_COMMITMENT_SIZE)).is_some());
+	}
+
+	#[test]
+	fn coinbase_features() {
+		let commit = Commitment::from_vec(vec![1]);
+		let plain = OutputIdentifier::new(OutputFeatures::Plain, &commit);
+		let coinbase = OutputIdentifier::new(OutputFeatures::Coinbase, &commit);
+
+		for (actual, expected) in [(plain, coinbase), (coinbase, plain)] {
+			let err = check_identifiers(&[actual], &[expected], "input").unwrap_err();
+			assert!(matches!(
+				err,
+				Error::GenericError(ref message)
+					if message == "Contract slate changed or duplicated one of our input commitments"
+			));
+		}
 	}
 }

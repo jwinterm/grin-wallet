@@ -39,8 +39,6 @@ Separating side effects until the 'save_step' part would make these functions mu
 
  - Reserve funds across open late-locked contracts, or make the possible signing failure
    clearer to callers.
- - Handle the coinbase flows. Coinbase inputs are built into the slate, but nothing else
-   is exercised.
  - Keep contracts at two participants until the known multi-party attack is addressed.
  - For a payjoin, `--use-inputs any` picks an input for us; naming the commitment would be
    clearer, for the API as much as the CLI.
