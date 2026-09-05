@@ -70,6 +70,9 @@ fn contract_srs_tx_impl(test_dir: &'static str) -> Result<(), libwallet::Error> 
 	let recv_wallet = wallets[1].0.clone();
 	let recv_mask = wallets[1].1.as_ref();
 	let participant_fee = my_fee_contribution(1, 1, 1, 2)?.fee();
+	let receiver_rate = 2 * u32::try_from(grin_core::global::get_accept_fee_base()).unwrap();
+	let receiver_fee = Transaction::weight_by_iok(1, 1, 0) * u64::from(receiver_rate)
+		+ (Transaction::weight_by_iok(0, 0, 1) * u64::from(receiver_rate)).div_ceil(2);
 	let ttl_cutoff = bh + 20;
 	let ttl_error = format!(
 		"Contract TTL changed from {} to {}",
@@ -111,6 +114,15 @@ fn contract_srs_tx_impl(test_dir: &'static str) -> Result<(), libwallet::Error> 
 					if msg == "Contract TTL must be at least 1 block"
 			));
 			args.ttl_blocks = Some(20);
+			args.setup_args.fee_rate = Some(0);
+			let err = api.contract_new(m, &mut args).unwrap_err();
+			assert!(matches!(
+				err,
+				libwallet::Error::GenericError(ref msg)
+					if msg == "Contract fee rate must be at least 1"
+			));
+			args.setup_args.fee_rate = None;
+			assert_eq!(common::wallet_progress(api, m)?, progress);
 			slate = api.contract_new(m, &mut args)?;
 			let (_, txs) = api.retrieve_txs(m, false, None, Some(slate.id), None)?;
 			assert_eq!(txs[0].ttl_cutoff_height, Some(ttl_cutoff));
@@ -253,6 +265,7 @@ fn contract_srs_tx_impl(test_dir: &'static str) -> Result<(), libwallet::Error> 
 	let args = ContractSetupArgsAPI {
 		selection_args: common::contract_selection_args(),
 		net_change: Some(5_000_000_000),
+		fee_rate: Some(receiver_rate),
 		..Default::default()
 	};
 	let incoming = slate.clone();
@@ -325,7 +338,7 @@ fn contract_srs_tx_impl(test_dir: &'static str) -> Result<(), libwallet::Error> 
 		&slate,
 		common::ExpectedContractSlate {
 			amount: 5_000_000_000,
-			fee: 2 * participant_fee,
+			fee: participant_fee + receiver_fee,
 			inputs: 1,
 			coinbase_inputs: 1,
 			outputs: 1,
@@ -342,10 +355,10 @@ fn contract_srs_tx_impl(test_dir: &'static str) -> Result<(), libwallet::Error> 
 		|api, m| {
 			let view = api.contract_view(m, &slate)?;
 			assert_eq!(view.own_commitment_status, OwnCommitmentStatus::Clean);
-			assert_eq!(view.own_fee, Some(participant_fee));
+			assert_eq!(view.own_fee, Some(receiver_fee));
 			assert_eq!(
 				view.balance_change,
-				Some(5_000_000_000 - participant_fee as i64)
+				Some(5_000_000_000 - receiver_fee as i64)
 			);
 			Ok(())
 		},
@@ -545,7 +558,7 @@ fn contract_srs_tx_impl(test_dir: &'static str) -> Result<(), libwallet::Error> 
 		&slate,
 		common::ExpectedContractSlate {
 			amount: 5_000_000_000,
-			fee: 2 * participant_fee,
+			fee: participant_fee + receiver_fee,
 			inputs: 2,
 			coinbase_inputs: 2,
 			outputs: 2,
@@ -623,11 +636,10 @@ fn contract_srs_tx_impl(test_dir: &'static str) -> Result<(), libwallet::Error> 
 			assert_eq!(tx_log.amount_debited, 0);
 			assert_eq!(tx_log.num_inputs, 1);
 			assert_eq!(tx_log.num_outputs, 1);
-			let expected_fees_paid = Some(my_fee_contribution(1, 1, 1, 2)?);
-			assert_eq!(tx_log.fee, expected_fees_paid);
+			assert_eq!(tx_log.fee.map(|fee| fee.fee()), Some(receiver_fee));
 			assert_eq!(
 				wallet_info.amount_currently_spendable,
-				4 * 60_000_000_000 + 5_000_000_000 - expected_fees_paid.unwrap().fee() // we expect the balance of 4 mined blocks + 5 Grin - fees paid
+				4 * 60_000_000_000 + 5_000_000_000 - receiver_fee // we expect the balance of 4 mined blocks + 5 Grin - fees paid
 			);
 			Ok(())
 		},

@@ -40,6 +40,7 @@ where
 	K: Keychain,
 {
 	contract::utils::verify_num_participants(setup_args.num_participants)?;
+	contract::utils::verify_fee_rate(setup_args.fee_rate)?;
 	// Compute state for 'new'
 	let (slate, context) = compute(w, keychain_mask, setup_args, ttl_blocks, slate_id)?;
 

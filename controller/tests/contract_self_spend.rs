@@ -124,11 +124,66 @@ fn contract_self_spend_tx_impl(test_dir: &'static str) -> Result<(), libwallet::
 	Ok(())
 }
 
+fn contract_fee_floor_impl(test_dir: &'static str) -> Result<(), libwallet::Error> {
+	let (wallets, _, stopper, _) = create_wallets(vec![vec![("default", 4)]], test_dir).unwrap();
+	let wallet = wallets[0].0.clone();
+	let mask = wallets[0].1.as_ref();
+
+	wallet::controller::owner_single_use(wallet, mask, PathBuf::from(test_dir), |api, m| {
+		let slate = api.contract_new(
+			m,
+			&ContractNewArgsAPI {
+				setup_args: ContractSetupArgsAPI {
+					selection_args: common::contract_selection_args(),
+					net_change: Some(0),
+					num_participants: 1,
+					fee_rate: Some(1),
+					..Default::default()
+				},
+				..Default::default()
+			},
+		)?;
+		let (_, txs) = api.retrieve_txs(m, false, None, Some(slate.id), None)?;
+		let (_, outputs) = api.retrieve_outputs(m, false, false, None)?;
+		let err = api
+			.contract_sign(m, &slate, &ContractSetupArgsAPI::default())
+			.unwrap_err();
+		assert!(matches!(
+			err,
+			libwallet::Error::Fee(ref message) if message.starts_with("Fee Dispute Error:")
+		));
+		let (_, current_txs) = api.retrieve_txs(m, false, None, Some(slate.id), None)?;
+		let (_, current_outputs) = api.retrieve_outputs(m, false, false, None)?;
+		assert_eq!(
+			serde_json::to_value(current_txs).unwrap(),
+			serde_json::to_value(txs).unwrap()
+		);
+		assert_eq!(
+			serde_json::to_value(current_outputs).unwrap(),
+			serde_json::to_value(outputs).unwrap()
+		);
+		Ok(())
+	})?;
+
+	stopper.store(false, Ordering::Relaxed);
+	thread::sleep(Duration::from_millis(200));
+	Ok(())
+}
+
 #[test]
 fn wallet_contract_self_spend_tx() -> Result<(), libwallet::Error> {
 	let test_dir = "test_output/contract_self_spend_tx";
 	setup(test_dir);
 	contract_self_spend_tx_impl(test_dir)?;
+	clean_output_dir(test_dir);
+	Ok(())
+}
+
+#[test]
+fn contract_fee_floor() -> Result<(), libwallet::Error> {
+	let test_dir = "test_output/contract_fee_floor";
+	setup(test_dir);
+	contract_fee_floor_impl(test_dir)?;
 	clean_output_dir(test_dir);
 	Ok(())
 }

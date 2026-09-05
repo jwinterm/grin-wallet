@@ -80,6 +80,7 @@ where
 {
 	debug!("Creating a new contract context");
 	contract_utils::verify_num_participants(setup_args.num_participants)?;
+	contract_utils::verify_fee_rate(setup_args.fee_rate)?;
 	// sender should always refresh outputs
 	updater::refresh_outputs(w, keychain_mask, parent_key_id, false)?;
 

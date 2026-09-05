@@ -127,6 +127,10 @@ pub struct ContractSetupArgsAPI {
 	pub net_change: Option<i64>,
 	/// The number of participants in a contract. Used for computing our kernel fee contribution
 	pub num_participants: u8,
+	/// Fee rate in nanogrin per unit of transaction weight
+	/// `None` uses the wallet default. The rate is fixed when the local context is created
+	/// and may be omitted in later steps
+	pub fee_rate: Option<u32>,
 	/// Should we perform an early lock of outputs
 	pub add_outputs: bool,
 	/// Output selection arguments
@@ -141,6 +145,7 @@ impl Default for ContractSetupArgsAPI {
 			src_acct_name: None,
 			net_change: None,
 			num_participants: 2,
+			fee_rate: None,
 			add_outputs: false,
 			selection_args: OutputSelectionArgs {
 				..Default::default()
@@ -169,6 +174,7 @@ impl Default for ContractNewArgsAPI {
 				src_acct_name: None,
 				net_change: None,
 				num_participants: 2,
+				fee_rate: None,
 				add_outputs: false,
 				selection_args: OutputSelectionArgs {
 					..Default::default()
@@ -291,6 +297,25 @@ mod tests {
 			serde_json::from_value::<ContractNewArgsAPI>(json)
 				.unwrap()
 				.ttl_blocks,
+			None
+		);
+	}
+
+	#[test]
+	fn fee_rate_json() {
+		let mut json = serde_json::to_value(ContractSetupArgsAPI::default()).unwrap();
+		json["fee_rate"] = serde_json::json!(2);
+		assert_eq!(
+			serde_json::from_value::<ContractSetupArgsAPI>(json.clone())
+				.unwrap()
+				.fee_rate,
+			Some(2)
+		);
+		json.as_object_mut().unwrap().remove("fee_rate");
+		assert_eq!(
+			serde_json::from_value::<ContractSetupArgsAPI>(json)
+				.unwrap()
+				.fee_rate,
 			None
 		);
 	}

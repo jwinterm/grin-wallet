@@ -41,6 +41,11 @@ so a late-locked contract can fail if another transaction spends the available o
 `contract new --ttl_blocks N` stops contract signing after `N` blocks. Finalized transactions
 can still be posted afterward.
 
+`--fee_rate N` uses `N` nanogrin per weight unit for this wallet's fee contribution. Each
+wallet chooses its rate when it first joins. Without it, the wallet uses `accept_fee_base`
+(500000 by default). The wallet only finalizes when the combined fee meets that minimum. If it
+does not, revoke the contract and create a new one.
+
 Each side's account is fixed when it first joins the contract. Changing the active account
 later does not affect setup or signing; they use the account stored in the context.
 
@@ -72,7 +77,6 @@ account selected with `--account`.
   the API. Only invoice proofs are supported and they require the experimental Slate V5
   format. The full proposal is described in
   [Early Payment Proofs](https://github.com/mimblewimble/grin-rfcs/pull/70)
-* Custom fee rates are not supported
 * There are no contract-specific history, lookup or transport commands. Payment proof
   memos cannot be set through the contract API or CLI. The current proof stores a memo
   type and 32 bytes instead of the text and hash described by the early payment proofs

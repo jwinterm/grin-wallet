@@ -1692,12 +1692,12 @@ pub struct ContractNewArgs {
 	pub minimum_confirmations: u64,
 	/// Blocks until wallets should stop signing the contract
 	pub ttl_blocks: Option<u64>,
+	/// Fee rate in nanogrin per unit of transaction weight
+	pub fee_rate: Option<u32>,
 	/// Select and lock outputs early
 	pub add_outputs: bool,
 
 	// Future features
-	/// Custom fee contribution
-	pub fee_rate: Option<u32>,
 	/// Save slatepack to a specific filename
 	pub outfile: Option<String>,
 }
@@ -1724,6 +1724,7 @@ impl ContractNewArgs {
 		Ok(ContractNewArgsAPI {
 			ttl_blocks: self.ttl_blocks,
 			setup_args: ContractSetupArgsAPI {
+				fee_rate: self.fee_rate,
 				src_acct_name: match self.src_acct_name.as_ref() {
 					Some(v) => Some(v.to_string()),
 					None => None,
@@ -1796,12 +1797,12 @@ pub struct ContractSetupArgs {
 	pub make_outputs: Option<Vec<u64>>,
 	/// Optional minimum number of confirmations required for an input
 	pub minimum_confirmations: Option<u64>,
+	/// Fee rate in nanogrin per unit of transaction weight
+	pub fee_rate: Option<u32>,
 
 	// Future features
 	/// Whether we should automatically sign a receive of any value
 	// pub auto_receive: Option<bool>,
-	/// Custom fee contribution
-	pub fee_rate: Option<u32>,
 	/// Save slatepack to a specific filename
 	pub outfile: Option<String>,
 	/// Add outputs
@@ -1830,6 +1831,7 @@ impl ContractSetupArgs {
 	fn to_api_args(&self) -> Result<ContractSetupArgsAPI, Error> {
 		let net_change = self.get_net_change()?;
 		Ok(ContractSetupArgsAPI {
+			fee_rate: self.fee_rate,
 			net_change: net_change,
 			add_outputs: self.add_outputs,
 			selection_args: OutputSelectionArgs {
@@ -2060,5 +2062,22 @@ mod contract_tests {
 			Err(libwallet::Error::SlatepackDeser(message))
 				if message.contains("Unsupported Slatepack mode: 2")
 		));
+	}
+
+	#[test]
+	fn contract_sign_fee_rate() {
+		let args = ContractSetupArgs {
+			counterparty_addr: None,
+			receive: None,
+			send: None,
+			as_json: false,
+			use_inputs: None,
+			make_outputs: None,
+			minimum_confirmations: None,
+			fee_rate: Some(2),
+			outfile: None,
+			add_outputs: false,
+		};
+		assert_eq!(args.to_api_args().unwrap().fee_rate, Some(2));
 	}
 }

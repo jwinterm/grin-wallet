@@ -1001,6 +1001,21 @@ pub fn parse_verify_proof_args(args: &ArgMatches) -> Result<command::ProofVerify
 	})
 }
 
+fn parse_contract_fee_rate(args: &ArgMatches) -> Result<Option<u32>, ParseError> {
+	let Some(value) = args.value_of("fee_rate") else {
+		return Ok(None);
+	};
+	let rate = parse_u64(value, "fee_rate")?;
+	if rate == 0 {
+		return Err(ParseError::ArgumentError(
+			"Contract fee rate must be at least 1".to_string(),
+		));
+	}
+	u32::try_from(rate)
+		.map(Some)
+		.map_err(|_| ParseError::ArgumentError("Contract fee rate is too large".to_string()))
+}
+
 pub fn parse_contract_new_args(
 	args: &ArgMatches,
 	account: &String,
@@ -1032,6 +1047,7 @@ pub fn parse_contract_new_args(
 		parse_required(args, "minimum_confirmations")?,
 		"minimum_confirmations",
 	)?;
+	let fee_rate = parse_contract_fee_rate(args)?;
 	let ttl_blocks = match args.value_of("ttl_blocks") {
 		Some(value) => {
 			let blocks = parse_u64(value, "ttl_blocks")?;
@@ -1099,9 +1115,9 @@ pub fn parse_contract_new_args(
 		use_inputs: use_inputs,
 		make_outputs: make_outputs,
 		minimum_confirmations,
+		fee_rate,
 		ttl_blocks,
 		// Not yet wired to CLI flags:
-		fee_rate: None,
 		outfile: None,
 	})
 }
@@ -1132,6 +1148,7 @@ pub fn parse_contract_setup_args(
 		Some(value) => Some(parse_u64(value, "minimum_confirmations")?),
 		None => None,
 	};
+	let fee_rate = parse_contract_fee_rate(args)?;
 	let no_payjoin = args.is_present("no-payjoin");
 	let use_inputs = match args.value_of("use-inputs") {
 		Some(v) => {
@@ -1174,8 +1191,8 @@ pub fn parse_contract_setup_args(
 		use_inputs: use_inputs,
 		make_outputs: make_outputs,
 		minimum_confirmations,
+		fee_rate,
 		// Not yet wired to CLI flags:
-		fee_rate: None,
 		outfile: None,
 	})
 }

@@ -26,6 +26,7 @@ use clap::App;
 use std::thread;
 use std::time::Duration;
 
+use grin_core::core::Transaction;
 use grin_keychain::ExtKeychain;
 use grin_wallet_impls::DefaultLCProvider;
 
@@ -102,6 +103,10 @@ fn contract_command_test_impl(test_dir: &str) -> Result<(), grin_wallet_controll
 	let mask1 = (&mask1_i).as_ref();
 	let mask2 = (&mask2_i).as_ref();
 	let _ = test_framework::award_blocks_to_wallet(&chain, wallet1.clone(), mask1, 5, false);
+	let fee_rate = 2 * grin_core::global::get_accept_fee_base();
+	let expected_fee = Transaction::weight_by_iok(1, 1, 0) * fee_rate
+		+ (Transaction::weight_by_iok(0, 0, 1) * fee_rate).div_ceil(2);
+	let fee_rate = fee_rate.to_string();
 
 	// Wallet 1 opens a contract sending 1 grin, leaving an unencrypted slatepack because
 	// no --encrypt-for was given
@@ -115,11 +120,24 @@ fn contract_command_test_impl(test_dir: &str) -> Result<(), grin_wallet_controll
 		"1",
 		"--min_conf",
 		"1",
+		"--fee_rate",
+		&fee_rate,
 	];
 	execute_command(&app, test_dir, "wallet1", &client1, arg_vec)?;
 
 	// Wallet 2 views the contract before signing it
 	let file_name = only_slatepack(test_dir, "wallet1");
+	grin_wallet_controller::controller::owner_single_use(
+		wallet1.clone(),
+		mask1,
+		std::path::PathBuf::from(test_dir),
+		|api, m| {
+			let message = std::fs::read_to_string(&file_name)?;
+			let slate = api.slate_from_slatepack_message(m, message, vec![0])?;
+			assert_eq!(slate.fee_fields.fee(), expected_fee);
+			Ok(())
+		},
+	)?;
 	let arg_vec = vec![
 		"grin-wallet",
 		"-p",
@@ -262,6 +280,8 @@ fn parses_contract_options() {
 			"1",
 			"--min_conf",
 			"3",
+			"--fee_rate",
+			"2",
 			"--ttl_blocks",
 			"20",
 		])
@@ -271,6 +291,7 @@ fn parses_contract_options() {
 	let parsed =
 		grin_wallet::cmd::wallet_args::parse_contract_new_args(new_args, &account).unwrap();
 	assert_eq!(parsed.minimum_confirmations, 3);
+	assert_eq!(parsed.fee_rate, Some(2));
 	assert_eq!(parsed.ttl_blocks, Some(20));
 
 	let expected = grin_wallet_libwallet::contract::types::DEFAULT_MINIMUM_CONFIRMATIONS;
@@ -283,6 +304,7 @@ fn parses_contract_options() {
 	let parsed =
 		grin_wallet::cmd::wallet_args::parse_contract_new_args(new_args, &account).unwrap();
 	assert_eq!(parsed.minimum_confirmations, expected);
+	assert_eq!(parsed.fee_rate, None);
 	assert_eq!(parsed.ttl_blocks, None);
 	let args = app
 		.clone()
@@ -300,6 +322,35 @@ fn parses_contract_options() {
 			"Contract TTL must be at least 1 block".to_string()
 		)
 	);
+	for (rate, message) in [
+		("0", "Contract fee rate must be at least 1"),
+		("4294967296", "Contract fee rate is too large"),
+	] {
+		let args = app
+			.clone()
+			.get_matches_from_safe(vec![
+				"grin-wallet",
+				"contract",
+				"new",
+				"-s",
+				"1",
+				"--fee_rate",
+				rate,
+			])
+			.unwrap();
+		let new_args = args
+			.subcommand_matches("contract")
+			.unwrap()
+			.subcommand_matches("new")
+			.unwrap();
+		let err = grin_wallet::cmd::wallet_args::parse_contract_new_args(new_args, &account)
+			.err()
+			.expect("invalid contract fee rate accepted");
+		assert_eq!(
+			err,
+			grin_wallet::cmd::wallet_args::ParseError::ArgumentError(message.to_string())
+		);
+	}
 
 	let args = app
 		.clone()
@@ -309,14 +360,24 @@ fn parses_contract_options() {
 	let sign_args = contract.subcommand_matches("sign").unwrap();
 	let parsed = grin_wallet::cmd::wallet_args::parse_contract_setup_args(sign_args).unwrap();
 	assert_eq!(parsed.minimum_confirmations, None);
+	assert_eq!(parsed.fee_rate, None);
 
 	let args = app
-		.get_matches_from_safe(vec!["grin-wallet", "contract", "sign", "--min_conf", "3"])
+		.get_matches_from_safe(vec![
+			"grin-wallet",
+			"contract",
+			"sign",
+			"--min_conf",
+			"3",
+			"--fee_rate",
+			"2",
+		])
 		.unwrap();
 	let contract = args.subcommand_matches("contract").unwrap();
 	let sign_args = contract.subcommand_matches("sign").unwrap();
 	let parsed = grin_wallet::cmd::wallet_args::parse_contract_setup_args(sign_args).unwrap();
 	assert_eq!(parsed.minimum_confirmations, Some(3));
+	assert_eq!(parsed.fee_rate, Some(2));
 }
 
 #[test]

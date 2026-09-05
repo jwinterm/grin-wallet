@@ -129,6 +129,7 @@ where
 			src_acct_name: src_acct_name.clone(),
 			net_change: Some(0), // self-spend
 			num_participants: 1,
+			fee_rate: None,
 			add_outputs: false,
 			selection_args: OutputSelectionArgs {
 				// Keep revoke at one confirmation
@@ -149,6 +150,7 @@ where
 			src_acct_name,
 			net_change: None, // we already have it in the context as 0 now
 			num_participants: 1,
+			fee_rate: None,
 			add_outputs: false,
 			selection_args: OutputSelectionArgs {
 				minimum_confirmations: Some(1),

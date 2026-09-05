@@ -24,7 +24,7 @@ use crate::slate::Slate;
 use crate::types::{Context, NodeClient, StoredProofInfo, TxLogEntryType};
 use crate::util::OnionV3Address;
 use crate::{address, Error, OutputData, OutputStatus, TxLogEntry};
-use grin_core::core::FeeFields;
+use grin_core::core::{FeeFields, Transaction};
 use uuid::Uuid;
 
 /// Creates an initial TxLogEntry without input/output or kernel information
@@ -346,15 +346,34 @@ pub fn my_fee_contribution(
 	n_kernels: usize,
 	num_participants: u8,
 ) -> Result<FeeFields, Error> {
+	fee_contribution(n_inputs, n_outputs, n_kernels, num_participants, None)
+}
+
+pub(super) fn fee_contribution(
+	n_inputs: usize,
+	n_outputs: usize,
+	n_kernels: usize,
+	num_participants: u8,
+	fee_rate: Option<u32>,
+) -> Result<FeeFields, Error> {
 	verify_num_participants(num_participants)?;
+	verify_fee_rate(fee_rate)?;
+	let fee_for = |inputs: usize, outputs: usize, kernels: usize| match fee_rate {
+		Some(rate) => Transaction::weight_by_iok(inputs as u64, outputs as u64, kernels as u64)
+			.checked_mul(u64::from(rate))
+			.ok_or_else(|| Error::GenericError("Contract fee overflow".to_string())),
+		None => Ok(tx_fee(inputs, outputs, kernels)),
+	};
 	// Add our fee costs for our inputs and a single output
-	let mut fee = tx_fee(n_inputs, n_outputs, 0);
+	let mut fee = fee_for(n_inputs, n_outputs, 0)?;
 	// Add out fee costs for kernel. We pay 1/num_participants of a kernel cost
-	let kernel_cost = tx_fee(0, 0, n_kernels);
+	let kernel_cost = fee_for(0, 0, n_kernels)?;
 	// Round each participant's kernel share up, so the participants together never underpay;
 	// the overpay is bounded to under one fee unit per participant.
-	let my_kernel_cost = (kernel_cost as f64 / (num_participants as f64)).ceil();
-	fee += my_kernel_cost as u64;
+	let my_kernel_cost = kernel_cost.div_ceil(u64::from(num_participants));
+	fee = fee
+		.checked_add(my_kernel_cost)
+		.ok_or_else(|| Error::GenericError("Contract fee overflow".to_string()))?;
 
 	// Add my fee contribution to the slate total fee. Uses the standard FeeFields
 	// encoding; contracts rely on every participant applying the same
@@ -371,6 +390,15 @@ pub(super) fn verify_num_participants(num_participants: u8) -> Result<(), Error>
 			"Unsupported num_participants: {} (expected 1 or 2)",
 			num_participants
 		)));
+	}
+	Ok(())
+}
+
+pub(super) fn verify_fee_rate(fee_rate: Option<u32>) -> Result<(), Error> {
+	if fee_rate == Some(0) {
+		return Err(Error::GenericError(
+			"Contract fee rate must be at least 1".to_string(),
+		));
 	}
 	Ok(())
 }
@@ -436,6 +464,18 @@ pub fn verify_setup_args_consistency(
 			ctx_setup_args.num_participants, cur_setup_args.num_participants
 		)));
 	}
+	if let Some(fee_rate) = cur_setup_args.fee_rate {
+		if Some(fee_rate) != ctx_setup_args.fee_rate {
+			let setup = ctx_setup_args
+				.fee_rate
+				.map(|rate| rate.to_string())
+				.unwrap_or_else(|| "default".to_string());
+			return Err(Error::GenericError(format!(
+				"Can't change fee rate after contract setup. setup:{}, current:{}",
+				setup, fee_rate
+			)));
+		}
+	}
 	// add_outputs is intentionally forced true at the sign step (late lock), so it is not
 	// part of this consistency check. parent_key_id is taken from the stored Context, so
 	// later steps always derive under the contract's account regardless of the active one.
@@ -489,10 +529,52 @@ mod tests {
 		let half = my_fee_contribution(n_inputs, n_outputs, n_kernels, 2)
 			.unwrap()
 			.fee();
-		let my_share = ((kernel_cost as f64) / 2.0).ceil() as u64;
+		let my_share = kernel_cost.div_ceil(2);
 		assert_eq!(half, base + my_share);
 		// ... and applying the same split, the participants together cover the kernel cost.
 		assert!(2 * my_share >= kernel_cost);
+	}
+
+	#[test]
+	fn custom_fee_rate() {
+		let rate = 2;
+		let fee = fee_contribution(1, 1, 1, 2, Some(rate)).unwrap();
+		let base = Transaction::weight_by_iok(1, 1, 0) * u64::from(rate);
+		let kernel = Transaction::weight_by_iok(0, 0, 1) * u64::from(rate);
+		assert_eq!(fee.fee(), base + kernel.div_ceil(2));
+		assert!(fee_contribution(1, 1, 1, 2, Some(0)).is_err());
+	}
+
+	#[test]
+	fn fee_rate_consistency() {
+		let setup = ContractSetupArgsAPI {
+			net_change: Some(-1),
+			fee_rate: Some(2),
+			..Default::default()
+		};
+		assert!(verify_setup_args_consistency(&setup, &setup).is_ok());
+		assert!(verify_setup_args_consistency(
+			&setup,
+			&ContractSetupArgsAPI {
+				net_change: Some(-1),
+				..Default::default()
+			}
+		)
+		.is_ok());
+		let err = verify_setup_args_consistency(
+			&setup,
+			&ContractSetupArgsAPI {
+				net_change: Some(-1),
+				fee_rate: Some(3),
+				..Default::default()
+			},
+		)
+		.unwrap_err();
+		assert!(matches!(
+			err,
+			Error::GenericError(ref msg)
+				if msg == "Can't change fee rate after contract setup. setup:2, current:3"
+		));
 	}
 
 	#[test]

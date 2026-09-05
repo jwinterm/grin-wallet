@@ -16,7 +16,7 @@
 
 use crate::backend::WalletBackend;
 use crate::contract::types::{ContractSetupArgsAPI, OutputSelectionArgs};
-use crate::contract::utils::my_fee_contribution;
+use crate::contract::utils::fee_contribution;
 use crate::grin_core::core::amount_to_hr_string;
 use crate::grin_keychain::{Identifier, Keychain};
 use crate::types::NodeClient;
@@ -130,11 +130,12 @@ where
 	if !is_self_spend && (pay_amount == 0 && !is_payjoin) {
 		return Ok((
 			vec![],
-			my_fee_contribution(
+			fee_contribution(
 				0,
 				setup_args.selection_args.num_custom_outputs() + 1,
 				1,
 				setup_args.num_participants,
+				setup_args.fee_rate,
 			)?,
 		));
 	}
@@ -179,7 +180,7 @@ where
 		committed_fee.unwrap()
 	} else {
 		// We start with a fee of 1 output and a shared kernel which is minimum for both parties
-		my_fee_contribution(0, 1, 1, setup_args.num_participants)?
+		fee_contribution(0, 1, 1, setup_args.num_participants, setup_args.fee_rate)?
 		// FeeFields::zero()
 	};
 
@@ -191,11 +192,21 @@ where
 		let must_take =
 			out.commit.is_some() && must_use_list.contains(&&out.commit.as_ref().unwrap()[..]);
 		// Compute the fee without this input
-		let fee_without =
-			my_fee_contribution(n_inputs, my_num_outputs, 1, setup_args.num_participants)?;
+		let fee_without = fee_contribution(
+			n_inputs,
+			my_num_outputs,
+			1,
+			setup_args.num_participants,
+			setup_args.fee_rate,
+		)?;
 		// Compute the total fee cost if we took this input
-		let mut fee_with =
-			my_fee_contribution(n_inputs + 1, my_num_outputs, 1, setup_args.num_participants)?;
+		let mut fee_with = fee_contribution(
+			n_inputs + 1,
+			my_num_outputs,
+			1,
+			setup_args.num_participants,
+			setup_args.fee_rate,
+		)?;
 		// If the current fee is lower than the committed fee (my_fee) then set it to committed fee
 		if my_fee.fee() > fee_with.fee() {
 			fee_with = my_fee;
@@ -370,6 +381,7 @@ pub fn verify_selection_consistency(
 mod tests {
 
 	use super::*;
+	use crate::contract::utils::my_fee_contribution;
 	use crate::grin_keychain::{Identifier, IDENTIFIER_SIZE};
 	use crate::OutputStatus;
 
@@ -535,6 +547,20 @@ mod tests {
 			result_ref,
 			(expected_inputs, expected_output_amounts, expected_fee)
 		);
+	}
+
+	#[test]
+	fn custom_fee_rate() {
+		let setup_args = ContractSetupArgsAPI {
+			net_change: Some(-3_000_000_000),
+			fee_rate: Some(2),
+			..Default::default()
+		};
+		let mut inputs = _create_output_data_for(vec![4_000_000_000]);
+		let (_, outputs, fee) = compute(&setup_args, None, &mut inputs).unwrap();
+		let expected = fee_contribution(1, 1, 1, 2, Some(2)).unwrap();
+		assert_eq!(fee, expected);
+		assert_eq!(outputs, vec![1_000_000_000 - expected.fee()]);
 	}
 
 	#[test]

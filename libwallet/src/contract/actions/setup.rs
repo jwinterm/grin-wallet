@@ -48,6 +48,7 @@ where
 	K: Keychain,
 {
 	contract::utils::verify_num_participants(slate.num_participants)?;
+	contract::utils::verify_fee_rate(setup_args.fee_rate)?;
 	if slate.num_participants != setup_args.num_participants {
 		return Err(Error::GenericError(format!(
 			"Inconsistent num_participants. Slate num_participants:{}, Setup num_participants: {}",
