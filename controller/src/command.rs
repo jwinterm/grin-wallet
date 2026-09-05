@@ -1694,12 +1694,10 @@ pub struct ContractNewArgs {
 	pub ttl_blocks: Option<u64>,
 	/// Fee rate in nanogrin per unit of transaction weight
 	pub fee_rate: Option<u32>,
+	/// Override the output Slatepack file
+	pub outfile: Option<String>,
 	/// Select and lock outputs early
 	pub add_outputs: bool,
-
-	// Future features
-	/// Save slatepack to a specific filename
-	pub outfile: Option<String>,
 }
 
 impl ContractNewArgs {
@@ -1799,12 +1797,12 @@ pub struct ContractSetupArgs {
 	pub minimum_confirmations: Option<u64>,
 	/// Fee rate in nanogrin per unit of transaction weight
 	pub fee_rate: Option<u32>,
+	/// Override the output Slatepack file
+	pub outfile: Option<String>,
 
 	// Future features
 	/// Whether we should automatically sign a receive of any value
 	// pub auto_receive: Option<bool>,
-	/// Save slatepack to a specific filename
-	pub outfile: Option<String>,
 	/// Add outputs
 	pub add_outputs: bool, // lock outputs early
 }
@@ -1937,6 +1935,8 @@ where
 pub struct ContractRevokeArgs {
 	/// Id of a transaction we want to cancel
 	pub tx_id: u32,
+	/// Override the output Slatepack file
+	pub outfile: Option<String>,
 }
 
 pub fn contract_revoke<L, C, K>(
@@ -1961,7 +1961,7 @@ where
 		)?;
 		if let Some(slate) = slate_opt {
 			// A revoke has no counterparty, so write the replacement as plaintext.
-			let slate_out = prepare_slatepack(api, keychain_mask, &slate, None, None)?;
+			let slate_out = prepare_slatepack(api, keychain_mask, &slate, None, args.outfile)?;
 			println!("{}", slate_out);
 		} else {
 			println!("Contract revoked. No replacement transaction was created.");

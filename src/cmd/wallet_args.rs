@@ -1048,6 +1048,7 @@ pub fn parse_contract_new_args(
 		"minimum_confirmations",
 	)?;
 	let fee_rate = parse_contract_fee_rate(args)?;
+	let outfile = parse_optional(args, "outfile")?;
 	let ttl_blocks = match args.value_of("ttl_blocks") {
 		Some(value) => {
 			let blocks = parse_u64(value, "ttl_blocks")?;
@@ -1117,8 +1118,7 @@ pub fn parse_contract_new_args(
 		minimum_confirmations,
 		fee_rate,
 		ttl_blocks,
-		// Not yet wired to CLI flags:
-		outfile: None,
+		outfile,
 	})
 }
 
@@ -1149,6 +1149,7 @@ pub fn parse_contract_setup_args(
 		None => None,
 	};
 	let fee_rate = parse_contract_fee_rate(args)?;
+	let outfile = parse_optional(args, "outfile")?;
 	let no_payjoin = args.is_present("no-payjoin");
 	let use_inputs = match args.value_of("use-inputs") {
 		Some(v) => {
@@ -1192,8 +1193,7 @@ pub fn parse_contract_setup_args(
 		make_outputs: make_outputs,
 		minimum_confirmations,
 		fee_rate,
-		// Not yet wired to CLI flags:
-		outfile: None,
+		outfile,
 	})
 }
 
@@ -1233,8 +1233,9 @@ pub fn parse_contract_revoke_args(
 	let tx_id = tx_id_str.parse::<u32>().map_err(|e| {
 		ParseError::ArgumentError(format!("Could not parse tx-id '{}'. e={}", tx_id_str, e))
 	})?;
+	let outfile = parse_optional(args, "outfile")?;
 
-	Ok(command::ContractRevokeArgs { tx_id: tx_id })
+	Ok(command::ContractRevokeArgs { tx_id, outfile })
 }
 
 pub fn contract_json_output(args: &ArgMatches<'_>) -> bool {

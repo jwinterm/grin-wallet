@@ -107,6 +107,7 @@ fn contract_command_test_impl(test_dir: &str) -> Result<(), grin_wallet_controll
 	let expected_fee = Transaction::weight_by_iok(1, 1, 0) * fee_rate
 		+ (Transaction::weight_by_iok(0, 0, 1) * fee_rate).div_ceil(2);
 	let fee_rate = fee_rate.to_string();
+	let file_name = format!("{}/wallet1/contract.slatepack", test_dir);
 
 	// Wallet 1 opens a contract sending 1 grin, leaving an unencrypted slatepack because
 	// no --encrypt-for was given
@@ -122,11 +123,13 @@ fn contract_command_test_impl(test_dir: &str) -> Result<(), grin_wallet_controll
 		"1",
 		"--fee_rate",
 		&fee_rate,
+		"--outfile",
+		&file_name,
 	];
 	execute_command(&app, test_dir, "wallet1", &client1, arg_vec)?;
+	assert!(std::path::Path::new(&file_name).is_file());
 
 	// Wallet 2 views the contract before signing it
-	let file_name = only_slatepack(test_dir, "wallet1");
 	grin_wallet_controller::controller::owner_single_use(
 		wallet1.clone(),
 		mask1,
@@ -284,6 +287,8 @@ fn parses_contract_options() {
 			"2",
 			"--ttl_blocks",
 			"20",
+			"--outfile",
+			"new.slatepack",
 		])
 		.unwrap();
 	let contract = args.subcommand_matches("contract").unwrap();
@@ -293,6 +298,7 @@ fn parses_contract_options() {
 	assert_eq!(parsed.minimum_confirmations, 3);
 	assert_eq!(parsed.fee_rate, Some(2));
 	assert_eq!(parsed.ttl_blocks, Some(20));
+	assert_eq!(parsed.outfile.as_deref(), Some("new.slatepack"));
 
 	let expected = grin_wallet_libwallet::contract::types::DEFAULT_MINIMUM_CONFIRMATIONS;
 	let args = app
@@ -363,6 +369,7 @@ fn parses_contract_options() {
 	assert_eq!(parsed.fee_rate, None);
 
 	let args = app
+		.clone()
 		.get_matches_from_safe(vec![
 			"grin-wallet",
 			"contract",
@@ -371,6 +378,8 @@ fn parses_contract_options() {
 			"3",
 			"--fee_rate",
 			"2",
+			"--outfile",
+			"sign.slatepack",
 		])
 		.unwrap();
 	let contract = args.subcommand_matches("contract").unwrap();
@@ -378,6 +387,23 @@ fn parses_contract_options() {
 	let parsed = grin_wallet::cmd::wallet_args::parse_contract_setup_args(sign_args).unwrap();
 	assert_eq!(parsed.minimum_confirmations, Some(3));
 	assert_eq!(parsed.fee_rate, Some(2));
+	assert_eq!(parsed.outfile.as_deref(), Some("sign.slatepack"));
+
+	let args = app
+		.get_matches_from_safe(vec![
+			"grin-wallet",
+			"contract",
+			"revoke",
+			"--tx-id",
+			"1",
+			"--outfile",
+			"revoke.slatepack",
+		])
+		.unwrap();
+	let contract = args.subcommand_matches("contract").unwrap();
+	let revoke_args = contract.subcommand_matches("revoke").unwrap();
+	let parsed = grin_wallet::cmd::wallet_args::parse_contract_revoke_args(revoke_args).unwrap();
+	assert_eq!(parsed.outfile.as_deref(), Some("revoke.slatepack"));
 }
 
 #[test]

@@ -512,6 +512,11 @@ subcommands:
                     short: b
                     long: ttl_blocks
                     takes_value: true
+                - outfile:
+                    help: If present, overrides the filename and location of the output Slatepack file.
+                    short: u
+                    long: outfile
+                    takes_value: true
         - sign:
             about: Sign a contract
             args:
@@ -559,6 +564,11 @@ subcommands:
                     help: Fee rate to use when first joining, in nanogrin per unit of transaction weight (defaults to accept_fee_base)
                     long: fee_rate
                     takes_value: true
+                - outfile:
+                    help: If present, overrides the filename and location of the output Slatepack file.
+                    short: u
+                    long: outfile
+                    takes_value: true
                 - no-broadcast:
                     help: Don't broadcast the transaction if it was finalized
                     long: no-broadcast
@@ -578,4 +588,9 @@ subcommands:
                     help: Id of a transaction we want to cancel
                     short: i
                     long: tx-id
+                    takes_value: true
+                - outfile:
+                    help: If present, overrides the filename and location of the output Slatepack file.
+                    short: u
+                    long: outfile
                     takes_value: true

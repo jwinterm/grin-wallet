@@ -14,6 +14,7 @@
 //! Test contract revoke, including when a different account is active than the
 //! one that contributed (and locked) the inputs.
 // #[macro_use]
+extern crate grin_wallet_api as api;
 extern crate grin_wallet_controller as wallet;
 extern crate grin_wallet_impls as impls;
 extern crate log;
@@ -29,7 +30,7 @@ use std::time::Duration;
 #[macro_use]
 mod common;
 use common::{clean_output_dir, create_wallets, setup};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Revoke the transaction in the requested account when two accounts share a transaction id.
 fn contract_revoke_other_account_impl(test_dir: &'static str) -> Result<(), libwallet::Error> {
@@ -202,7 +203,7 @@ fn wallet_contract_revoke_other_account() -> Result<(), libwallet::Error> {
 /// built yet) must be resumable: a second revoke detects the now-Unspent inputs that are
 /// still tagged with the cancelled tx and still produces the self-spend, rather than
 /// silently doing nothing.
-fn contract_revoke_resume_impl(test_dir: &'static str) -> Result<(), libwallet::Error> {
+fn contract_revoke_resume_impl(test_dir: &'static str) -> Result<(), wallet::Error> {
 	let (wallets, _chain, stopper, _bh) =
 		create_wallets(vec![vec![("default", 4)]], test_dir).unwrap();
 	let wallet1 = wallets[0].0.clone();
@@ -261,25 +262,19 @@ fn contract_revoke_resume_impl(test_dir: &'static str) -> Result<(), libwallet::
 		},
 	)?;
 
-	// Resume: revoke must still produce the self-spend from the now-Unspent input.
-	let mut revoked = None;
-	wallet::controller::owner_single_use(
-		wallet1.clone(),
+	// Resume through the command path and write the self-spend to the requested file.
+	let outfile = format!("{}/revoke.slatepack", test_dir);
+	let mut owner = api::Owner::new(wallet1.clone(), None, PathBuf::from(test_dir));
+	wallet::command::contract_revoke(
+		&mut owner,
 		mask1,
-		PathBuf::from(test_dir),
-		|api, m| {
-			revoked = api.contract_revoke(
-				m,
-				&ContractRevokeArgsAPI {
-					tx_id,
-					src_acct_name: None,
-				},
-			)?;
-			Ok(())
+		wallet::command::ContractRevokeArgs {
+			tx_id,
+			outfile: Some(outfile.clone()),
 		},
 	)?;
 	assert!(
-		revoked.is_some(),
+		Path::new(&outfile).is_file(),
 		"interrupted revoke should resume and produce a self-spend slate"
 	);
 
@@ -289,7 +284,7 @@ fn contract_revoke_resume_impl(test_dir: &'static str) -> Result<(), libwallet::
 }
 
 #[test]
-fn wallet_contract_revoke_resume() -> Result<(), libwallet::Error> {
+fn wallet_contract_revoke_resume() -> Result<(), wallet::Error> {
 	let test_dir = "test_output/contract_revoke_resume";
 	setup(test_dir);
 	contract_revoke_resume_impl(test_dir)?;

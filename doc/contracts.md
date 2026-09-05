@@ -13,7 +13,8 @@ API does not require manual confirmation, so a wallet using it still needs to sh
 transaction and ask the user before signing.
 
 The CLI exchanges Slatepacks. The last `sign` broadcasts the transaction unless
-`--no-broadcast` is used.
+`--no-broadcast` is used. `--outfile` overrides the output Slatepack file for `new`, `sign`
+and `revoke`.
 
 ## Amounts and fees
 
