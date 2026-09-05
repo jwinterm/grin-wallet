@@ -17,11 +17,12 @@
 //! by legacy transactions
 
 use crate::backend::WalletBackend;
+use crate::blake2::blake2b::blake2b;
 use crate::contract::types::{ProofArgs, ProofType};
 use crate::grin_core::libtx::aggsig;
 use crate::grin_core::libtx::secp_ser;
 use crate::grin_core::ser as grin_ser;
-use crate::grin_core::ser::{Readable, Reader, Writeable, Writer};
+use crate::grin_core::ser::{Writeable, Writer};
 use crate::grin_keychain::Keychain;
 use crate::grin_util::secp::key::{PublicKey, SecretKey};
 use crate::grin_util::secp::pedersen::Commitment;
@@ -95,7 +96,7 @@ pub struct ProofWitness {
 }
 
 /// Payment proof, to be extracted from slates for
-/// signing (when wrapped as PaymentProofBin) or json export from stored tx data
+/// signing (when wrapped as InvoiceProofBin) or json export from stored tx data
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct InvoiceProof {
 	/// Proof type, 0x00 legacy (though this will use StoredProofInfo above, 1 invoice, 2 Sender nonce)
@@ -127,9 +128,9 @@ pub struct InvoiceProof {
 	pub witness_data: Option<ProofWitness>,
 }
 
-struct InvoiceProofBin(InvoiceProof);
+struct InvoiceProofBin<'a>(&'a InvoiceProof);
 
-impl Writeable for InvoiceProofBin {
+impl Writeable for InvoiceProofBin<'_> {
 	fn write<W: Writer>(&self, writer: &mut W) -> Result<(), grin_ser::Error> {
 		writer.write_u8(self.0.proof_type.as_u8())?;
 
@@ -160,77 +161,9 @@ impl Writeable for InvoiceProofBin {
 		}
 		writer.write_fixed_bytes(self.0.sender_address.as_bytes())?;
 		writer.write_i64(self.0.timestamp)?;
-		match &self.0.memo {
-			Some(s) => {
-				writer.write_u8(s.memo_type)?;
-				writer.write_fixed_bytes(&s.memo.to_vec())?;
-			}
-			None => {
-				writer.write_u8(0)?;
-				writer.write_fixed_bytes([0u8; 32].to_vec())?;
-			}
-		}
+		let memo = self.0.memo.as_ref().map(PaymentMemo::as_str).unwrap_or("");
+		writer.write_fixed_bytes(blake2b(32, &[], memo.as_bytes()).as_bytes())?;
 		Ok(())
-	}
-}
-
-/// Currently only exercised by the tests, but this is a normal Readable, so every
-/// externally shaped value it reads is mapped to a serialization error rather than
-/// unwrapped.
-impl Readable for InvoiceProofBin {
-	fn read<R: Reader>(reader: &mut R) -> Result<InvoiceProofBin, grin_ser::Error> {
-		// first 8 bytes are proof type + 7 bytes worth of amount
-		let mut amount = reader.read_u64()?;
-		// The shift leaves a single byte, so this conversion cannot lose data
-		let proof_type = PaymentProofType::try_from(((amount & 0xFF00_0000_0000_0000) >> 56) as u8)
-			.map_err(|_| grin_ser::Error::CorruptedData)?;
-		amount &= 0x00FF_FFFF_FFFF_FFFF;
-
-		let receiver_public_nonce;
-		let receiver_public_excess;
-		{
-			let static_secp = static_secp_instance();
-			let static_secp = static_secp.lock();
-			receiver_public_nonce =
-				PublicKey::from_slice(&static_secp, &reader.read_fixed_bytes(33)?)
-					.map_err(|_| grin_ser::Error::CorruptedData)?;
-			receiver_public_excess =
-				PublicKey::from_slice(&static_secp, &reader.read_fixed_bytes(33)?)
-					.map_err(|_| grin_ser::Error::CorruptedData)?;
-		}
-
-		let sender_address_vec = reader.read_fixed_bytes(32)?;
-		let sender_address_bytes = <&[u8; 32]>::try_from(sender_address_vec.as_slice())
-			.map_err(|_| grin_ser::Error::CorruptedData)?;
-		let sender_address = DalekPublicKey::from_bytes(sender_address_bytes)
-			.map_err(|_| grin_ser::Error::CorruptedData)?;
-
-		let timestamp = reader.read_i64()?;
-
-		let memo_type = reader.read_u8()?;
-		let memo = reader.read_fixed_bytes(32)?;
-		let memo_bytes =
-			<[u8; 32]>::try_from(memo.as_slice()).map_err(|_| grin_ser::Error::CorruptedData)?;
-
-		let res = InvoiceProof {
-			proof_type,
-			amount,
-			receiver_public_nonce,
-			receiver_public_excess,
-			sender_address,
-			timestamp,
-			memo: match memo_type {
-				0 => None,
-				_ => Some(PaymentMemo {
-					memo_type,
-					memo: memo_bytes,
-				}),
-			},
-			promise_signature: None,
-			witness_data: None,
-		};
-
-		Ok(InvoiceProofBin(res))
 	}
 }
 
@@ -304,9 +237,9 @@ impl InvoiceProof {
 		let d_skey = DalekSecretKey::from_bytes(&sec_key.0);
 		let pub_key = d_skey.verifying_key();
 		let mut sig_data_bin = Vec::new();
-		grin_ser::serialize_default(&mut sig_data_bin, &InvoiceProofBin(self.clone())).map_err(
-			|e| Error::GenericError(format!("InvoiceProof serialization failed: {}", e)),
-		)?;
+		grin_ser::serialize_default(&mut sig_data_bin, &InvoiceProofBin(self)).map_err(|e| {
+			Error::GenericError(format!("InvoiceProof serialization failed: {}", e))
+		})?;
 
 		Ok((d_skey.sign(&sig_data_bin), pub_key))
 	}
@@ -325,9 +258,9 @@ impl InvoiceProof {
 
 		// Rebuild message
 		let mut sig_data_bin = Vec::new();
-		grin_ser::serialize_default(&mut sig_data_bin, &InvoiceProofBin(self.clone())).map_err(
-			|e| Error::GenericError(format!("InvoiceProof serialization failed: {}", e)),
-		)?;
+		grin_ser::serialize_default(&mut sig_data_bin, &InvoiceProofBin(self)).map_err(|e| {
+			Error::GenericError(format!("InvoiceProof serialization failed: {}", e))
+		})?;
 
 		if recipient_address
 			.verify(&sig_data_bin, self.promise_signature.as_ref().unwrap())
@@ -399,18 +332,6 @@ impl InvoiceProof {
 			}
 		}
 		Ok(())
-	}
-}
-
-impl serde::Serialize for InvoiceProofBin {
-	fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-	where
-		S: serde::Serializer,
-	{
-		let mut vec = vec![];
-		grin_ser::serialize(&mut vec, grin_ser::ProtocolVersion(4), self)
-			.map_err(|err| serde::ser::Error::custom(err.to_string()))?;
-		serializer.serialize_bytes(&vec)
 	}
 }
 
@@ -550,17 +471,25 @@ mod tests {
 		// Should fail, amount too big
 		let invoice_proof = InvoiceProof::from_slate(&slate, 1, None)?;
 		let mut vec = Vec::new();
-		assert!(grin_ser::serialize_default(&mut vec, &InvoiceProofBin(invoice_proof)).is_err());
+		assert!(grin_ser::serialize_default(&mut vec, &InvoiceProofBin(&invoice_proof)).is_err());
 
 		// Should be okay now
 		slate.amount = 1234;
-		let invoice_proof = InvoiceProof::from_slate(&slate, 1, None)?;
+		let mut invoice_proof = InvoiceProof::from_slate(&slate, 1, None)?;
 		let mut vec = Vec::new();
-		grin_ser::serialize_default(&mut vec, &InvoiceProofBin(invoice_proof.clone()))
+		grin_ser::serialize_default(&mut vec, &InvoiceProofBin(&invoice_proof))
 			.expect("Serialization Failed");
-
-		let proof_deser: InvoiceProofBin = grin_ser::deserialize_default(&mut &vec[..]).unwrap();
-		assert_eq!(invoice_proof, proof_deser.0);
+		let memo = invoice_proof.memo.as_ref().unwrap().as_str();
+		assert_eq!(
+			&vec[vec.len() - 32..],
+			blake2b(32, &[], memo.as_bytes()).as_bytes()
+		);
+		let proof_key = SecretKey::from_slice(&Secp256k1::new(), &[7; 32])?;
+		let (signature, recipient) = invoice_proof.sign(&proof_key)?;
+		invoice_proof.promise_signature = Some(signature);
+		invoice_proof.verify_promise_signature(&recipient)?;
+		invoice_proof.memo = Some(PaymentMemo::new("changed details".to_string())?);
+		assert!(invoice_proof.verify_promise_signature(&recipient).is_err());
 
 		let mut wrong_type = invoice_proof;
 		wrong_type.proof_type = PaymentProofType::Legacy;
@@ -570,34 +499,11 @@ mod tests {
 		Ok(())
 	}
 
-	// Every key the reader takes from the encoded form is externally shaped, so a
-	// corrupted one has to come back as a serialization error rather than a panic.
 	#[test]
-	fn deser_invoice_proof_bin_rejects_bad_keys() -> Result<(), Error> {
-		let mut slate = populate_test_slate()?;
-		slate.amount = 1234;
-		slate.payment_proof.as_mut().unwrap().promise_signature = None;
-		let invoice_proof = InvoiceProof::from_slate(&slate, 1, None)?;
-
-		let mut vec = Vec::new();
-		grin_ser::serialize_default(&mut vec, &InvoiceProofBin(invoice_proof))
-			.expect("Serialization Failed");
-
-		// The two secp keys follow the 8 amount bytes, then the ed25519 sender address
-		for offset in [8, 41, 74] {
-			let mut corrupted = vec.clone();
-			// An all-ones prefix is not a valid point in either encoding
-			for b in corrupted[offset..offset + 8].iter_mut() {
-				*b = 0xFF;
-			}
-			let res: Result<InvoiceProofBin, _> =
-				grin_ser::deserialize_default(&mut &corrupted[..]);
-			assert!(
-				res.is_err(),
-				"corrupting offset {} should not parse",
-				offset
-			);
-		}
-		Ok(())
+	fn memo_limit() {
+		assert!(PaymentMemo::new("a".repeat(PaymentMemo::MAX_LEN)).is_ok());
+		assert!(PaymentMemo::new("a".repeat(PaymentMemo::MAX_LEN + 1)).is_err());
+		assert!(PaymentMemo::new("ä".repeat(PaymentMemo::MAX_LEN / 2)).is_ok());
+		assert!(PaymentMemo::new("ä".repeat(PaymentMemo::MAX_LEN / 2 + 1)).is_err());
 	}
 }

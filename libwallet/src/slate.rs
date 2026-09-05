@@ -42,7 +42,7 @@ use crate::slate_versions::v4::{
 };
 use crate::slate_versions::v5::{
 	CommitsV5, KernelFeaturesArgsV5, OutputFeaturesV5, ParticipantDataV5, PaymentInfoV5,
-	PaymentMemoV5, SlateStateV5, SlateV5, VersionCompatInfoV5,
+	SlateStateV5, SlateV5, VersionCompatInfoV5,
 };
 use crate::slate_versions::VersionedSlate;
 use crate::slate_versions::{CURRENT_SLATE_VERSION, GRIN_BLOCK_HEADER_VERSION};
@@ -114,15 +114,38 @@ pub(crate) mod payment_proof_type_serde {
 	}
 }
 
+/// Payment details bound to an early payment proof
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-pub struct PaymentMemo {
-	// The type of memo
-	// 0x00 is the absence of any specific memo data
-	// 0x01 is directly embedded additional payment details
-	// 0x02 represents the blake2b hash of an arbitrary invoice document
-	pub memo_type: u8,
-	// memo data itself
-	pub memo: [u8; 32],
+#[serde(try_from = "String")]
+pub struct PaymentMemo(String);
+
+impl PaymentMemo {
+	/// Maximum memo size from the early payment proofs proposal
+	pub const MAX_LEN: usize = 1024;
+
+	/// Create a payment memo
+	pub fn new(memo: String) -> Result<Self, Error> {
+		if memo.len() > Self::MAX_LEN {
+			return Err(Error::PaymentProof(format!(
+				"Payment memo exceeds {} bytes",
+				Self::MAX_LEN
+			)));
+		}
+		Ok(Self(memo))
+	}
+
+	/// Memo text
+	pub fn as_str(&self) -> &str {
+		&self.0
+	}
+}
+
+impl TryFrom<String> for PaymentMemo {
+	type Error = Error;
+
+	fn try_from(memo: String) -> Result<Self, Self::Error> {
+		Self::new(memo)
+	}
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -1020,13 +1043,7 @@ impl From<&PaymentInfo> for PaymentInfoV5 {
 		let receiver_address = *receiver_address;
 		let promise_signature = *promise_signature;
 		let timestamp = *timestamp;
-		let memo = match memo {
-			Some(m) => Some(PaymentMemoV5 {
-				memo_type: m.memo_type,
-				memo: m.memo,
-			}),
-			None => None,
-		};
+		let memo = memo.clone();
 		PaymentInfoV5 {
 			ptype: proof_type,
 			saddr: sender_address,
@@ -1238,16 +1255,7 @@ impl From<&PaymentInfoV5> for PaymentInfo {
 		let receiver_address = *receiver_address;
 		let promise_signature = *promise_signature;
 		let timestamp = *timestamp;
-		let memo: Option<PaymentMemo> = match memo {
-			Some(m) => {
-				//memo_ret.copy_from_slice(&grin_util::from_hex(m.memo).unwrap_or_default()[0..32]);
-				Some(PaymentMemo {
-					memo_type: m.memo_type,
-					memo: m.memo,
-				})
-			}
-			None => None,
-		};
+		let memo = memo.clone();
 		PaymentInfo {
 			proof_type,
 			sender_address,

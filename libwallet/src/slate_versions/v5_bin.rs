@@ -21,15 +21,15 @@ use crate::grin_keychain::BlindingFactor;
 use crate::grin_util::secp::key::PublicKey;
 use crate::grin_util::secp::pedersen::{Commitment, RangeProof};
 use crate::grin_util::secp::Signature;
-use crate::slate::PaymentProofType;
+use crate::slate::{PaymentMemo, PaymentProofType};
 use chrono::DateTime;
 use ed25519_dalek::Signature as DalekSignature;
 use ed25519_dalek::VerifyingKey as DalekPublicKey;
-use std::convert::{TryFrom, TryInto};
+use std::convert::TryFrom;
 
 use crate::slate_versions::v5::{
-	CommitsV5, KernelFeaturesArgsV5, ParticipantDataV5, PaymentInfoV5, PaymentMemoV5, SlateStateV5,
-	SlateV5, VersionCompatInfoV5,
+	CommitsV5, KernelFeaturesArgsV5, ParticipantDataV5, PaymentInfoV5, SlateStateV5, SlateV5,
+	VersionCompatInfoV5,
 };
 
 use crate::slate_versions::v4_bin::{SlateOptFields, UuidWrap};
@@ -247,8 +247,7 @@ impl<'a> Writeable for ProofWrapRef<'a> {
 		match &self.0.memo {
 			Some(s) => {
 				writer.write_u8(1)?;
-				writer.write_u8(s.memo_type)?;
-				writer.write_fixed_bytes(&s.memo)?;
+				writer.write_bytes(s.as_str().as_bytes())?;
 			}
 			None => writer.write_u8(0)?,
 		}
@@ -297,13 +296,11 @@ impl Readable for ProofWrap {
 		};
 		let memo = match reader.read_u8()? {
 			0 => None,
-			1 => Some(PaymentMemoV5 {
-				memo_type: reader.read_u8()?,
-				memo: reader
-					.read_fixed_bytes(32)?
-					.try_into()
-					.map_err(|_| grin_ser::Error::CorruptedData)?,
-			}),
+			1 => {
+				let memo = String::from_utf8(reader.read_bytes_len_prefix()?)
+					.map_err(|_| grin_ser::Error::CorruptedData)?;
+				Some(PaymentMemo::new(memo).map_err(|_| grin_ser::Error::CorruptedData)?)
+			}
 			_ => return Err(grin_ser::Error::CorruptedData),
 		};
 		Ok(ProofWrap(PaymentInfoV5 {
@@ -573,10 +570,7 @@ fn slate_v5_serialize_deserialize() {
 	let d_pkey = DalekPublicKey::from_bytes(b).unwrap();
 	// Need to remove milliseconds component for comparison. Won't be serialized
 	let ts = DateTime::from_timestamp(Utc::now().timestamp(), 0).unwrap();
-	let pm = PaymentMemoV5 {
-		memo_type: 0,
-		memo: [9; 32],
-	};
+	let pm = PaymentMemo::new("payment details".to_string()).unwrap();
 	v5.proof = Some(PaymentInfoV5 {
 		ptype: PaymentProofType::Invoice,
 		raddr: d_pkey.clone(),

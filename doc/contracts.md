@@ -83,9 +83,8 @@ account selected with `--account`.
   format. The full proposal is described in
   [Early Payment Proofs](https://github.com/mimblewimble/grin-rfcs/pull/70)
 * There are no contract-specific history, lookup or transport commands. Payment proof
-  memos cannot be set through the contract API or CLI. The current proof stores a memo
-  type and 32 bytes instead of the text and hash described by the early payment proofs
-  proposal
+  memos cannot be set through the contract API or CLI. Early proofs support UTF-8 memos
+  up to 1024 bytes and bind their Blake2b hash
 * If writing the signed transaction file fails, the wallet state has already been saved.
   Cancelling the transaction releases the locked inputs
 

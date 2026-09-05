@@ -247,10 +247,7 @@ pub mod tests {
 		let d_pkey = DalekPublicKey::from_bytes(b).unwrap();
 		// Need to remove milliseconds component for comparison. Won't be serialized
 		let ts = DateTime::from_timestamp(Utc::now().timestamp(), 0).unwrap();
-		let pm = PaymentMemo {
-			memo_type: 1,
-			memo: [9; 32],
-		};
+		let pm = PaymentMemo::new("payment details".to_string()).unwrap();
 
 		let psig = DalekSignature::from_bytes(&[0u8; 64]);
 		slate_internal.payment_proof = Some(PaymentInfo {

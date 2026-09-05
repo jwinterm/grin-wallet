@@ -26,9 +26,7 @@
 //!
 //! * `ptype` identifies the payment proof type
 //! * `ts` adds an optional timestamp, serialized as seconds since the epoch
-//! * `memo` added as optional MemoV5 Struct, which contains:
-//!   * `memo_type`: u8
-//!   * `memo`: [u8;32] the memo data itself
+//! * `memo` adds optional payment details
 
 use crate::grin_core::core::FeeFields;
 use crate::grin_core::core::{Input, Output, TxKernel};
@@ -38,7 +36,7 @@ use crate::grin_util::secp;
 use crate::grin_util::secp::key::PublicKey;
 use crate::grin_util::secp::pedersen::{Commitment, RangeProof};
 use crate::grin_util::secp::Signature;
-use crate::slate::PaymentProofType;
+use crate::slate::{PaymentMemo, PaymentProofType};
 use crate::{slate_versions::ser, CbData};
 use chrono::prelude::{DateTime, Utc};
 use ed25519_dalek::Signature as DalekSignature;
@@ -196,14 +194,6 @@ fn default_part_sig_none() -> Option<Signature> {
 	None
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-pub struct PaymentMemoV5 {
-	// Uses the values defined by PaymentMemo
-	pub memo_type: u8,
-	// memo data itself
-	pub memo: [u8; 32],
-}
-
 #[serde_as]
 #[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
 pub struct PaymentInfoV5 {
@@ -223,7 +213,7 @@ pub struct PaymentInfoV5 {
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub psig: Option<DalekSignature>,
 	#[serde(skip_serializing_if = "Option::is_none")]
-	pub memo: Option<PaymentMemoV5>,
+	pub memo: Option<PaymentMemo>,
 }
 
 fn default_promise_signature_none() -> Option<DalekSignature> {
