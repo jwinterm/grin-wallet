@@ -2065,19 +2065,48 @@ mod contract_tests {
 	}
 
 	#[test]
-	fn contract_sign_fee_rate() {
+	fn contract_sign_args() {
 		let args = ContractSetupArgs {
 			counterparty_addr: None,
 			receive: None,
 			send: None,
 			as_json: false,
-			use_inputs: None,
+			use_inputs: Some("commitment".to_string()),
 			make_outputs: None,
 			minimum_confirmations: None,
 			fee_rate: Some(2),
 			outfile: None,
 			add_outputs: false,
 		};
-		assert_eq!(args.to_api_args().unwrap().fee_rate, Some(2));
+		let api_args = args.to_api_args().unwrap();
+		assert_eq!(api_args.fee_rate, Some(2));
+		assert_eq!(
+			api_args.selection_args.use_inputs.as_deref(),
+			Some("commitment")
+		);
+	}
+
+	#[test]
+	fn contract_new_args() {
+		let args = ContractNewArgs {
+			counterparty_addr: None,
+			receive: Some(1),
+			send: None,
+			src_acct_name: None,
+			num_participants: 2,
+			as_json: false,
+			use_inputs: Some("commitment".to_string()),
+			make_outputs: None,
+			minimum_confirmations: 1,
+			ttl_blocks: None,
+			fee_rate: None,
+			outfile: None,
+			add_outputs: false,
+		};
+		let api_args = args.to_api_args().unwrap();
+		assert_eq!(
+			api_args.setup_args.selection_args.use_inputs.as_deref(),
+			Some("commitment")
+		);
 	}
 }

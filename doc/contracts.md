@@ -29,7 +29,8 @@ to balance that side of the transaction.
 
 Payjoin is used by default. A receiver adds an input when one is available. An empty wallet
 can still receive; the fee is then taken from the received output. `--no-payjoin` prevents
-the receiver from adding an input and cannot be used together with `--use-inputs`.
+the receiver from adding an input and cannot be used together with `--use-inputs`. Pass one
+or more comma-separated output commitments to `--use-inputs` to select specific payjoin inputs.
 
 Inputs and outputs are normally picked when signing. `--add-outputs` picks and locks them
 during `new`. Prepared outputs appear as unconfirmed in the wallet, but are only added to

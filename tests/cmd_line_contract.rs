@@ -374,6 +374,10 @@ fn parses_contract_options() {
 			"grin-wallet",
 			"contract",
 			"sign",
+			"--receive",
+			"1",
+			"--use-inputs",
+			"commitment",
 			"--min_conf",
 			"3",
 			"--fee_rate",
@@ -388,6 +392,7 @@ fn parses_contract_options() {
 	assert_eq!(parsed.minimum_confirmations, Some(3));
 	assert_eq!(parsed.fee_rate, Some(2));
 	assert_eq!(parsed.outfile.as_deref(), Some("sign.slatepack"));
+	assert_eq!(parsed.use_inputs.as_deref(), Some("commitment"));
 
 	let args = app
 		.get_matches_from_safe(vec![
@@ -421,6 +426,8 @@ fn selection_locks_early() {
 	};
 
 	assert!(!parse(&[]).add_outputs);
-	assert!(parse(&["--use-inputs", "commitment"]).add_outputs);
+	let selected = parse(&["--use-inputs", "commitment"]);
+	assert!(selected.add_outputs);
+	assert_eq!(selected.use_inputs.as_deref(), Some("commitment"));
 	assert!(parse(&["--make-outputs", "1"]).add_outputs);
 }

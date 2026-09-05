@@ -586,8 +586,8 @@ mod tests {
 	}
 
 	#[test]
-	fn receiver_payjoin_exact() {
-		// net_change=-my_fees(1, 1), inputs=[my_fees(1, 0)], no fee committed => Ok([3, my_fees(2, 1)], fees)
+	fn receiver_payjoin_inputs() {
+		// A receiver payjoin uses the smallest input unless one is named
 		let setup_args = ContractSetupArgsAPI {
 			// we expect to receive exactly our fee contribution my_fees(1, 1)
 			net_change: Some(my_fee_contribution(1, 1, 1, 2).unwrap().fee() as i64),
@@ -608,6 +608,11 @@ mod tests {
 			result_ref,
 			(expected_inputs, expected_output_amounts, expected_fee)
 		);
+
+		let mut named_args = setup_args.clone();
+		named_args.selection_args.use_inputs = Some("abc1".to_string());
+		let result = compute(&named_args, None, &mut inputs.clone()).unwrap();
+		assert_eq!(result.0, vec![inputs[1].clone()]);
 	}
 
 	#[test]
