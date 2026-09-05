@@ -37,7 +37,8 @@ Separating side effects until the 'save_step' part would make these functions mu
 
 #### TODOs
 
- - Raise the replacement fee when `revoke` races a transaction already in the mempool.
+ - Add RBF support to the Grin node before raising the replacement fee when `revoke`
+   races a transaction already in the mempool.
  - Merge invoice-proof retrieval with the existing payment-proof API.
  - Add a Grin node API for kernel lookup by MMR index, then use the witness index instead
    of searching by commitment.

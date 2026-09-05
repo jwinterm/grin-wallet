@@ -70,7 +70,8 @@ this wallet could decrypt it.
 self-spend of that input. The caller still has to post it, and either transaction can win
 if the original is already in the mempool. When the wallet added no input there is no
 replacement transaction. The replacement does not use a higher fee. An interrupted
-`revoke` can be run again. Transaction ids belong to an account, so the CLI uses the
+`revoke` can be run again. Nodes do not currently replace a mempool transaction with the
+revoke transaction. Transaction ids belong to an account, so the CLI uses the
 account selected with `--account`.
 
 ## Current limitations
