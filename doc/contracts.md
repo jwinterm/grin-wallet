@@ -39,6 +39,8 @@ Each party chooses `--min_conf` when it first joins and cannot change it later. 
 is used for the fee estimate, so any required inputs need enough confirmations at that point.
 A value of `0` allows unconfirmed non-coinbase outputs. Open contracts do not reserve funds,
 so a late-locked contract can fail if another transaction spends the available outputs first.
+Signing then returns `NotEnoughFunds`; revoke and recreate the contract, or use `--add-outputs`
+when creating it to reserve inputs.
 
 `contract new --ttl_blocks N` stops contract signing after `N` blocks. Finalized transactions
 can still be posted afterward.
