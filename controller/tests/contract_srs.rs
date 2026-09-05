@@ -70,6 +70,12 @@ fn contract_srs_tx_impl(test_dir: &'static str) -> Result<(), libwallet::Error> 
 	let recv_wallet = wallets[1].0.clone();
 	let recv_mask = wallets[1].1.as_ref();
 	let participant_fee = my_fee_contribution(1, 1, 1, 2)?.fee();
+	let ttl_cutoff = bh + 20;
+	let ttl_error = format!(
+		"Contract TTL changed from {} to {}",
+		ttl_cutoff,
+		ttl_cutoff + 1
+	);
 
 	let mut slate = Slate::blank(0, false); // this gets overriden below
 
@@ -80,6 +86,7 @@ fn contract_srs_tx_impl(test_dir: &'static str) -> Result<(), libwallet::Error> 
 		|api, m| {
 			// Send wallet inititates a standard transaction with --send=5
 			let mut args = ContractNewArgsAPI {
+				ttl_blocks: Some(20),
 				setup_args: ContractSetupArgsAPI {
 					selection_args: common::contract_selection_args(),
 					net_change: Some(-5_000_000_000),
@@ -96,11 +103,22 @@ fn contract_srs_tx_impl(test_dir: &'static str) -> Result<(), libwallet::Error> 
 			assert_eq!(common::wallet_progress(api, m)?, progress);
 
 			args.setup_args.num_participants = 2;
+			args.ttl_blocks = Some(0);
+			let err = api.contract_new(m, &mut args).unwrap_err();
+			assert!(matches!(
+				err,
+				libwallet::Error::GenericError(ref msg)
+					if msg == "Contract TTL must be at least 1 block"
+			));
+			args.ttl_blocks = Some(20);
 			slate = api.contract_new(m, &mut args)?;
+			let (_, txs) = api.retrieve_txs(m, false, None, Some(slate.id), None)?;
+			assert_eq!(txs[0].ttl_cutoff_height, Some(ttl_cutoff));
 			Ok(())
 		},
 	)?;
 	assert_eq!(slate.state, SlateState::Standard1);
+	assert_eq!(slate.ttl_cutoff_height, ttl_cutoff);
 	common::assert_basic_contract_slate(
 		&slate,
 		common::ExpectedContractSlate {
@@ -302,6 +320,7 @@ fn contract_srs_tx_impl(test_dir: &'static str) -> Result<(), libwallet::Error> 
 		},
 	)?;
 	assert_eq!(slate.state, SlateState::Standard2);
+	assert_eq!(slate.ttl_cutoff_height, ttl_cutoff);
 	common::assert_basic_contract_slate(
 		&slate,
 		common::ExpectedContractSlate {
@@ -487,6 +506,32 @@ fn contract_srs_tx_impl(test_dir: &'static str) -> Result<(), libwallet::Error> 
 		send_mask,
 		PathBuf::from(test_dir),
 		|api, m| {
+			let progress = common::wallet_progress(api, m)?;
+			let mut expired = slate.clone();
+			expired.ttl_cutoff_height = bh;
+			let err = api
+				.contract_sign(m, &expired, &ContractSetupArgsAPI::default())
+				.unwrap_err();
+			assert!(matches!(err, libwallet::Error::TransactionExpired));
+
+			let mut changed = slate.clone();
+			changed.ttl_cutoff_height += 1;
+			let err = match api.contract_view(m, &changed) {
+				Err(err) => err,
+				Ok(_) => panic!("changed contract TTL accepted"),
+			};
+			assert!(matches!(
+				err,
+				libwallet::Error::GenericError(ref msg) if msg == &ttl_error
+			));
+			let err = api
+				.contract_sign(m, &changed, &ContractSetupArgsAPI::default())
+				.unwrap_err();
+			assert!(matches!(
+				err,
+				libwallet::Error::GenericError(ref msg) if msg == &ttl_error
+			));
+			assert_eq!(common::wallet_progress(api, m)?, progress);
 			let args = &mut ContractSetupArgsAPI {
 				selection_args: common::contract_selection_args(),
 				..Default::default()
@@ -525,6 +570,16 @@ fn contract_srs_tx_impl(test_dir: &'static str) -> Result<(), libwallet::Error> 
 		send_mask,
 		PathBuf::from(test_dir),
 		|api, m| {
+			let mut changed = slate.clone();
+			changed.ttl_cutoff_height += 1;
+			let err = match api.contract_view(m, &changed) {
+				Err(err) => err,
+				Ok(_) => panic!("changed contract TTL accepted"),
+			};
+			assert!(matches!(
+				err,
+				libwallet::Error::GenericError(ref msg) if msg == &ttl_error
+			));
 			let view = api.contract_view(m, &slate)?;
 			assert_eq!(view.own_commitment_status, OwnCommitmentStatus::Unknown);
 			assert_eq!(view.own_fee, Some(participant_fee));

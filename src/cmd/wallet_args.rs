@@ -1032,6 +1032,18 @@ pub fn parse_contract_new_args(
 		parse_required(args, "minimum_confirmations")?,
 		"minimum_confirmations",
 	)?;
+	let ttl_blocks = match args.value_of("ttl_blocks") {
+		Some(value) => {
+			let blocks = parse_u64(value, "ttl_blocks")?;
+			if blocks == 0 {
+				return Err(ParseError::ArgumentError(
+					"Contract TTL must be at least 1 block".to_string(),
+				));
+			}
+			Some(blocks)
+		}
+		None => None,
+	};
 	let as_json = args.is_present("as-json");
 	let no_payjoin = args.is_present("no-payjoin");
 	let use_inputs = match args.value_of("use-inputs") {
@@ -1087,6 +1099,7 @@ pub fn parse_contract_new_args(
 		use_inputs: use_inputs,
 		make_outputs: make_outputs,
 		minimum_confirmations,
+		ttl_blocks,
 		// Not yet wired to CLI flags:
 		fee_rate: None,
 		outfile: None,

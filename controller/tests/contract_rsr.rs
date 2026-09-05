@@ -60,6 +60,7 @@ fn contract_rsr_tx_impl(test_dir: &'static str) -> Result<(), libwallet::Error> 
 
 	// Receive wallet initiates an invoice transaction through the foreign API.
 	let args = &ContractNewArgsAPI {
+		ttl_blocks: None,
 		setup_args: ContractSetupArgsAPI {
 			selection_args: common::contract_selection_args(),
 			net_change: Some(5_000_000_000),
@@ -88,6 +89,7 @@ fn contract_rsr_tx_impl(test_dir: &'static str) -> Result<(), libwallet::Error> 
 		recv_mask.cloned(),
 		|api| {
 			let rejected = ContractNewArgsAPI {
+				ttl_blocks: args.ttl_blocks,
 				setup_args: ContractSetupArgsAPI {
 					net_change: Some(-5_000_000_000),
 					..args.setup_args.clone()

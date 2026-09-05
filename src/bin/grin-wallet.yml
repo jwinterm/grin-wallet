@@ -503,6 +503,11 @@ subcommands:
                     long: min_conf
                     default_value: "10"
                     takes_value: true
+                - ttl_blocks:
+                    help: Positive number of blocks until wallets stop signing the contract
+                    short: b
+                    long: ttl_blocks
+                    takes_value: true
         - sign:
             about: Sign a contract
             args:

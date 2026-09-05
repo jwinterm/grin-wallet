@@ -14,7 +14,7 @@
 
 //! Implementation of contract setup
 
-use crate::api_impl::owner::check_ttl;
+use crate::api_impl::owner::check_ttl_at_height;
 use crate::backend::WalletBackend;
 use crate::contract;
 use crate::contract::types::ContractSetupArgsAPI;
@@ -23,6 +23,18 @@ use crate::grin_keychain::Keychain;
 use crate::grin_util::secp::key::SecretKey;
 use crate::slate::Slate;
 use crate::types::{Context, NodeClient};
+
+// Contract deadlines use the node tip because the active account may not own the context
+fn check_contract_ttl<C, K>(w: &mut WalletBackend<C, K>, slate: &Slate) -> Result<(), Error>
+where
+	C: NodeClient,
+	K: Keychain,
+{
+	if slate.ttl_cutoff_height == 0 {
+		return Ok(());
+	}
+	check_ttl_at_height(slate, w.w2n_client().get_chain_tip()?.0)
+}
 
 /// Perform a contract setup
 pub fn setup<C, K>(
@@ -64,10 +76,11 @@ where
 	K: Keychain,
 {
 	let mut sl = slate.clone();
-	check_ttl(w, &sl)?;
+	check_contract_ttl(w, &sl)?;
 
 	// Get or create the Context and check the setup arguments
 	let mut context = contract::context::get_or_create(w, keychain_mask, &mut sl, setup_args)?;
+	contract::utils::verify_ttl(context.contract_ttl_cutoff_height, &sl)?;
 	let context_args = context
 		.setup_args
 		.as_ref()

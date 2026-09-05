@@ -1690,14 +1690,16 @@ pub struct ContractNewArgs {
 	pub make_outputs: Option<Vec<u64>>,
 	/// Minimum number of confirmations required for an input
 	pub minimum_confirmations: u64,
+	/// Blocks until wallets should stop signing the contract
+	pub ttl_blocks: Option<u64>,
+	/// Select and lock outputs early
+	pub add_outputs: bool,
 
 	// Future features
 	/// Custom fee contribution
 	pub fee_rate: Option<u32>,
 	/// Save slatepack to a specific filename
 	pub outfile: Option<String>,
-	/// Select outputs early
-	pub add_outputs: bool,
 }
 
 impl ContractNewArgs {
@@ -1720,6 +1722,7 @@ impl ContractNewArgs {
 	fn to_api_args(&self) -> Result<ContractNewArgsAPI, Error> {
 		let net_change = self.get_net_change()?;
 		Ok(ContractNewArgsAPI {
+			ttl_blocks: self.ttl_blocks,
 			setup_args: ContractSetupArgsAPI {
 				src_acct_name: match self.src_acct_name.as_ref() {
 					Some(v) => Some(v.to_string()),

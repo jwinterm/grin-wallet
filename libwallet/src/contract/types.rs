@@ -15,6 +15,7 @@
 //! Types related to a contract
 
 use crate::error::Error;
+use crate::grin_core::libtx::secp_ser;
 pub use crate::slate::PaymentProofType as ProofType;
 use crate::slate_versions::ser as dalek_ser;
 use ed25519_dalek::VerifyingKey as DalekPublicKey;
@@ -154,11 +155,16 @@ impl Default for ContractSetupArgsAPI {
 pub struct ContractNewArgsAPI {
 	/// Setup args - contract new also initiates the setup by default
 	pub setup_args: ContractSetupArgsAPI,
+	/// Blocks until wallets should stop signing the contract
+	/// Only used when creating a new contract context
+	#[serde(with = "secp_ser::opt_string_or_u64", default)]
+	pub ttl_blocks: Option<u64>,
 }
 
 impl Default for ContractNewArgsAPI {
 	fn default() -> ContractNewArgsAPI {
 		ContractNewArgsAPI {
+			ttl_blocks: None,
 			setup_args: ContractSetupArgsAPI {
 				src_acct_name: None,
 				net_change: None,
@@ -262,6 +268,30 @@ mod tests {
 		assert_eq!(
 			omitted.effective_minimum_confirmations(),
 			DEFAULT_MINIMUM_CONFIRMATIONS
+		);
+	}
+
+	#[test]
+	fn contract_ttl_json() {
+		let mut args = ContractNewArgsAPI::default();
+		args.ttl_blocks = Some(20);
+		let mut json = serde_json::to_value(&args).unwrap();
+		assert_eq!(json["ttl_blocks"], "20");
+
+		json["ttl_blocks"] = serde_json::json!(20);
+		assert_eq!(
+			serde_json::from_value::<ContractNewArgsAPI>(json.clone())
+				.unwrap()
+				.ttl_blocks,
+			Some(20)
+		);
+
+		json.as_object_mut().unwrap().remove("ttl_blocks");
+		assert_eq!(
+			serde_json::from_value::<ContractNewArgsAPI>(json)
+				.unwrap()
+				.ttl_blocks,
+			None
 		);
 	}
 

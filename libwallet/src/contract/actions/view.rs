@@ -92,6 +92,13 @@ where
 		.find(|tx| contract::utils::is_signed_tx(tx, slate.id));
 	let has_signed = signed_tx.is_some();
 	let tx = signed_tx.or_else(|| txs.first());
+	let stored_ttl = context
+		.as_ref()
+		.map(|context| context.contract_ttl_cutoff_height)
+		.or_else(|| tx.map(|tx| tx.ttl_cutoff_height));
+	if let Some(expected) = stored_ttl {
+		contract::utils::verify_ttl(expected, slate)?;
+	}
 	// Once we have signed, the context identifies the commitments we added. If it has
 	// already been removed, the slate no longer carries enough information to do that.
 	let own_commitment_status = if slate.tx.is_none() || (context.is_none() && !txs.is_empty()) {

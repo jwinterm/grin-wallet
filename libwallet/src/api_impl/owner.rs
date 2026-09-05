@@ -1383,12 +1383,13 @@ where
 	C: NodeClient,
 	K: Keychain,
 {
-	// Refuse if TTL is expired
-	let last_confirmed_height = w.last_confirmed_height()?;
-	if slate.ttl_cutoff_height != 0 {
-		if last_confirmed_height >= slate.ttl_cutoff_height {
-			return Err(Error::TransactionExpired);
-		}
+	check_ttl_at_height(slate, w.last_confirmed_height()?)
+}
+
+/// Check a slate TTL against the given block height
+pub(crate) fn check_ttl_at_height(slate: &Slate, height: u64) -> Result<(), Error> {
+	if slate.ttl_cutoff_height != 0 && height >= slate.ttl_cutoff_height {
+		return Err(Error::TransactionExpired);
 	}
 	Ok(())
 }
@@ -1587,7 +1588,13 @@ where
 	C: NodeClient,
 	K: Keychain,
 {
-	contract::new(&mut *w, keychain_mask, &args.setup_args, None)
+	contract::new(
+		&mut *w,
+		keychain_mask,
+		&args.setup_args,
+		args.ttl_blocks,
+		None,
+	)
 }
 
 /// View a transaction contract

@@ -32,6 +32,7 @@ pub fn new<C, K>(
 	w: &mut WalletBackend<C, K>,
 	keychain_mask: Option<&SecretKey>,
 	setup_args: &ContractSetupArgsAPI,
+	ttl_blocks: Option<u64>,
 	slate_id: Option<Uuid>,
 ) -> Result<Slate, Error>
 where
@@ -40,7 +41,7 @@ where
 {
 	contract::utils::verify_num_participants(setup_args.num_participants)?;
 	// Compute state for 'new'
-	let (slate, context) = compute(w, keychain_mask, setup_args, slate_id)?;
+	let (slate, context) = compute(w, keychain_mask, setup_args, ttl_blocks, slate_id)?;
 
 	// Atomically commit state
 	contract::utils::save_step(w, keychain_mask, &slate, context, setup_args.add_outputs)?;
@@ -53,6 +54,7 @@ pub fn compute<C, K>(
 	w: &mut WalletBackend<C, K>,
 	keychain_mask: Option<&SecretKey>,
 	setup_args: &ContractSetupArgsAPI,
+	ttl_blocks: Option<u64>,
 	slate_id: Option<Uuid>,
 ) -> Result<(Slate, Context), Error>
 where
@@ -68,8 +70,30 @@ where
 	let num_participants = setup_args.num_participants;
 	let mut slate = Slate::blank(num_participants, net_change > 0);
 	// Use a caller-supplied id when given, so a retried creation reuses the same context.
+	let mut reused_context = false;
 	if let Some(id) = slate_id {
 		slate.id = id;
+		match w.get_private_context(keychain_mask, slate.id.as_bytes()) {
+			Ok(context) => {
+				slate.ttl_cutoff_height = context.contract_ttl_cutoff_height.unwrap_or(0);
+				reused_context = true;
+			}
+			Err(Error::NotFoundErr(_)) => {}
+			Err(e) => return Err(e),
+		}
+	}
+	if !reused_context {
+		if let Some(blocks) = ttl_blocks {
+			if blocks == 0 {
+				return Err(Error::GenericError(
+					"Contract TTL must be at least 1 block".to_string(),
+				));
+			}
+			let height = w.w2n_client().get_chain_tip()?.0;
+			slate.ttl_cutoff_height = height.checked_add(blocks).ok_or_else(|| {
+				Error::GenericError("Contract TTL exceeds the maximum block height".to_string())
+			})?;
+		}
 	}
 	// We set slate.amount to contain the _positive_ net_change for the other party so they can derive expectations.
 	// unsigned_abs avoids the i64::MIN overflow panic of abs().

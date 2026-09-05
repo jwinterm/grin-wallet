@@ -279,6 +279,7 @@ fn contract_min_confirmations_impl(test_dir: &'static str) -> Result<(), libwall
 			slate = api.contract_new(
 				m,
 				&ContractNewArgsAPI {
+					ttl_blocks: None,
 					setup_args: ContractSetupArgsAPI {
 						net_change: Some(-(consensus::GRIN_BASE as i64)),
 						selection_args: OutputSelectionArgs {

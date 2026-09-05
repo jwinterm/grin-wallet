@@ -403,6 +403,8 @@ pub struct Context {
 	/// history might need to search through a list to update a txlogentry, so we
 	/// keep the id in the context.
 	pub log_id: Option<u32>,
+	/// Contract signing deadline copied from the slate
+	pub contract_ttl_cutoff_height: Option<u64>,
 }
 
 impl Context {
@@ -454,6 +456,7 @@ impl Context {
 			calculated_excess: None,
 			setup_args: None,
 			log_id: None,
+			contract_ttl_cutoff_height: None,
 		}
 	}
 }

@@ -654,6 +654,11 @@ fn contract_view_table(
 	table.add_row(row![bFC->"Slate Id", bGC->slate.id]);
 	table.add_row(row![bFC->"State", bGC->slate.state]);
 	table.add_row(row![bFC->"Encrypted for This Wallet", bGC->yes_no(was_encrypted)]);
+	let deadline = match slate.ttl_cutoff_height {
+		0 => "None".to_string(),
+		height => height.to_string(),
+	};
+	table.add_row(row![bFC->"Signing Deadline Height", bGC->deadline]);
 	table.add_row(row![bFC->"Participants", bGC->view.num_participants]);
 	table.add_row(row![bFC->"Signatures", bGC->view.num_sigs]);
 	table.add_row(row![bFC->"Transfer Amount", bGC->amount_to_hr_string(slate.amount, false)]);
@@ -787,6 +792,7 @@ mod tests {
 		global::set_local_chain_type(global::ChainTypes::AutomatedTesting);
 		let mut slate = Slate::blank(2, false);
 		slate.amount = 1_000_000_000;
+		slate.ttl_cutoff_height = 42;
 		slate.fee_fields = FeeFields::new(0, 4_000_000).unwrap();
 		let input_commit = Commitment::from_vec(vec![3]);
 		let output_commit = Commitment::from_vec(vec![4]);
@@ -810,6 +816,7 @@ mod tests {
 		let table = contract_view_table(&slate, &view, true);
 
 		assert_eq!(table_value(&table, "Encrypted for This Wallet"), "Yes");
+		assert_eq!(table_value(&table, "Signing Deadline Height"), "42");
 		assert_eq!(table_value(&table, "Transfer Amount"), "1.000000000");
 		assert_eq!(
 			table_value(&table, "Current Transaction Fee"),
@@ -825,6 +832,9 @@ mod tests {
 
 		let table = contract_view_table(&slate, &view, false);
 		assert_eq!(table_value(&table, "Encrypted for This Wallet"), "No");
+		slate.ttl_cutoff_height = 0;
+		let table = contract_view_table(&slate, &view, false);
+		assert_eq!(table_value(&table, "Signing Deadline Height"), "None");
 
 		slate.tx = Some(Transaction::new(
 			Inputs::CommitOnly(vec![input_commit.into()]),

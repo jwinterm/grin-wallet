@@ -248,7 +248,7 @@ fn rejects_conflicting_input_options() {
 }
 
 #[test]
-fn parses_contract_min_confirmations() {
+fn parses_contract_options() {
 	let yml = load_yaml!("../src/bin/grin-wallet.yml");
 	let app = App::from_yaml(yml);
 	let account = "default".to_string();
@@ -262,6 +262,8 @@ fn parses_contract_min_confirmations() {
 			"1",
 			"--min_conf",
 			"3",
+			"--ttl_blocks",
+			"20",
 		])
 		.unwrap();
 	let contract = args.subcommand_matches("contract").unwrap();
@@ -269,6 +271,7 @@ fn parses_contract_min_confirmations() {
 	let parsed =
 		grin_wallet::cmd::wallet_args::parse_contract_new_args(new_args, &account).unwrap();
 	assert_eq!(parsed.minimum_confirmations, 3);
+	assert_eq!(parsed.ttl_blocks, Some(20));
 
 	let expected = grin_wallet_libwallet::contract::types::DEFAULT_MINIMUM_CONFIRMATIONS;
 	let args = app
@@ -280,6 +283,23 @@ fn parses_contract_min_confirmations() {
 	let parsed =
 		grin_wallet::cmd::wallet_args::parse_contract_new_args(new_args, &account).unwrap();
 	assert_eq!(parsed.minimum_confirmations, expected);
+	assert_eq!(parsed.ttl_blocks, None);
+	let args = app
+		.clone()
+		.get_matches_from_safe(vec!["grin-wallet", "contract", "new", "-s", "1", "-b", "0"])
+		.unwrap();
+	let contract = args.subcommand_matches("contract").unwrap();
+	let new_args = contract.subcommand_matches("new").unwrap();
+	let err = match grin_wallet::cmd::wallet_args::parse_contract_new_args(new_args, &account) {
+		Err(err) => err,
+		Ok(_) => panic!("zero contract TTL accepted"),
+	};
+	assert_eq!(
+		err,
+		grin_wallet::cmd::wallet_args::ParseError::ArgumentError(
+			"Contract TTL must be at least 1 block".to_string()
+		)
+	);
 
 	let args = app
 		.clone()

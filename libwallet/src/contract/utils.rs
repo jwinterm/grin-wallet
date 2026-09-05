@@ -375,6 +375,18 @@ pub(super) fn verify_num_participants(num_participants: u8) -> Result<(), Error>
 	Ok(())
 }
 
+/// Ensure the slate still carries the stored contract deadline
+pub(super) fn verify_ttl(expected: Option<u64>, slate: &Slate) -> Result<(), Error> {
+	let expected = expected.unwrap_or(0);
+	if expected != slate.ttl_cutoff_height {
+		return Err(Error::GenericError(format!(
+			"Contract TTL changed from {} to {}",
+			expected, slate.ttl_cutoff_height
+		)));
+	}
+	Ok(())
+}
+
 /// Whether a transaction log entry shows that this wallet signed the slate.
 pub(super) fn is_signed_tx(tx: &TxLogEntry, slate_id: Uuid) -> bool {
 	tx.tx_slate_id == Some(slate_id) && tx.kernel_excess.is_some()

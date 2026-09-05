@@ -34,7 +34,7 @@ use std::path::PathBuf;
 /// contract accounts testing when switching between accounts during transaction building
 fn contract_accounts_switch_impl(test_dir: &'static str) -> Result<(), libwallet::Error> {
 	// create two wallets with some extra accounts and don't mine anything in them
-	let (wallets, _chain, stopper, _bh) = create_wallets(
+	let (wallets, _chain, stopper, bh) = create_wallets(
 		vec![
 			vec![("default", 0), ("account1", 1), ("account2", 2)],
 			vec![("default", 0), ("account1", 3), ("account2", 4)],
@@ -110,6 +110,7 @@ fn contract_accounts_switch_impl(test_dir: &'static str) -> Result<(), libwallet
 		|api, m| {
 			// Send wallet inititates a standard transaction with --send=5
 			let args = &ContractNewArgsAPI {
+				ttl_blocks: Some(20),
 				setup_args: ContractSetupArgsAPI {
 					selection_args: common::contract_selection_args(),
 					net_change: Some(-5_000_000_000),
@@ -122,6 +123,7 @@ fn contract_accounts_switch_impl(test_dir: &'static str) -> Result<(), libwallet
 		},
 	)?;
 	assert_eq!(slate.state, SlateState::Standard1);
+	assert_eq!(slate.ttl_cutoff_height, bh + 20);
 
 	// Receiver gets their coins on account2 where they can payjoin
 	{
@@ -146,16 +148,24 @@ fn contract_accounts_switch_impl(test_dir: &'static str) -> Result<(), libwallet
 	)?;
 	assert_eq!(slate.state, SlateState::Standard2);
 
-	// Switch account for wallet1 to account2 and finish the transaction (should use account1 to complete)
+	// Switch accounts and finish the transaction (should use account1 to complete)
 	{
 		wallet_inst!(wallet1, w);
-		w.set_parent_key_id_by_name("account2")?;
+		w.set_parent_key_id_by_name("default")?;
 	}
 	wallet::controller::owner_single_use(
 		wallet1.clone(),
 		mask1,
 		PathBuf::from(test_dir),
 		|api, m| {
+			let (_, wallet_info) = api.retrieve_summary_info(m, false, 1)?;
+			assert_eq!(wallet_info.last_confirmed_height, 0);
+			let mut expired = slate.clone();
+			expired.ttl_cutoff_height = bh;
+			assert!(matches!(
+				api.contract_sign(m, &expired, &ContractSetupArgsAPI::default()),
+				Err(libwallet::Error::TransactionExpired)
+			));
 			let args = &ContractSetupArgsAPI {
 				selection_args: common::contract_selection_args(),
 				..Default::default()
@@ -165,6 +175,10 @@ fn contract_accounts_switch_impl(test_dir: &'static str) -> Result<(), libwallet
 		},
 	)?;
 	assert_eq!(slate.state, SlateState::Standard3);
+	{
+		wallet_inst!(wallet1, w);
+		w.set_parent_key_id_by_name("account2")?;
+	}
 
 	// post tx and mine a block to wallet1::account2
 	wallet::controller::owner_single_use(

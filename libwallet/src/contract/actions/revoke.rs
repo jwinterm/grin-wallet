@@ -138,6 +138,7 @@ where
 			},
 			proof_args: Default::default(),
 		},
+		None,
 		self_spend_id,
 	)?;
 	let finished_slate = sign(

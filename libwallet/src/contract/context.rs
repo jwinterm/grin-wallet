@@ -119,6 +119,10 @@ where
 	// Store the full setup args on the context; later steps (add_outputs) read the
 	// selection arguments from here.
 	context.setup_args = Some(setup_args.clone());
+	context.contract_ttl_cutoff_height = match slate.ttl_cutoff_height {
+		0 => None,
+		height => Some(height),
+	};
 	debug!(
 		"Setting Context.net_change as: {}",
 		context.get_net_change()?
